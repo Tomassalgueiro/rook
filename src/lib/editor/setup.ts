@@ -2,8 +2,9 @@ import { Annotation, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { isLineActive, linkAt, livePreview, type LinkTarget } from "./livePreview";
+import { wikilinkCompletion, type LinkOption } from "./completion";
 
-export type { LinkTarget };
+export type { LinkOption, LinkTarget };
 
 /** Marks programmatic content replacement, which isn't a user edit. */
 const external = Annotation.define<boolean>();
@@ -26,6 +27,7 @@ export function createEditor(
   doc: string,
   onchange: (text: string) => void,
   onlink: (link: LinkTarget) => void,
+  linkOptions: () => LinkOption[],
 ): EditorView {
   return new EditorView({
     parent,
@@ -38,6 +40,7 @@ export function createEditor(
         EditorView.contentAttributes.of({ spellcheck: "false", "aria-label": "Note content" }),
         chrome,
         livePreview(),
+        wikilinkCompletion(linkOptions),
         // Click opens a rendered link; on the line being edited it needs Ctrl/Cmd+click.
         EditorView.domEventHandlers({
           mousedown(e, view) {

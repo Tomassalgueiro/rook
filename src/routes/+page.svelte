@@ -19,7 +19,7 @@
   import StatusBar from "$lib/components/StatusBar.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Dialog from "$lib/components/Dialog.svelte";
-  import type { LinkTarget } from "$lib/editor/setup";
+  import type { LinkOption, LinkTarget } from "$lib/editor/setup";
   import VaultPicker from "$lib/components/VaultPicker.svelte";
   import Resizer from "$lib/components/Resizer.svelte";
 
@@ -226,6 +226,25 @@
 
   // ---- Links ----
 
+  /** [[ autocomplete entries: note titles (full path when titles clash) and files. */
+  function linkOptions(): LinkOption[] {
+    if (!vault) return [];
+    const folderOf = (p: string) => p.slice(0, Math.max(p.lastIndexOf("/"), 0)) || undefined;
+    const titleCount = new Map<string, number>();
+    for (const n of vault.notes) {
+      const t = noteTitle(n.path).toLowerCase();
+      titleCount.set(t, (titleCount.get(t) ?? 0) + 1);
+    }
+    const notes = vault.notes
+      .filter((n) => n.path !== activePath)
+      .map((n) => ({
+        label: titleCount.get(noteTitle(n.path).toLowerCase())! > 1 ? n.path.replace(/\.md$/i, "") : noteTitle(n.path),
+        detail: folderOf(n.path),
+      }));
+    const files = vault.files.map((f) => ({ label: f.path.slice(f.path.lastIndexOf("/") + 1), detail: folderOf(f.path) }));
+    return [...notes, ...files];
+  }
+
   async function openLink(link: LinkTarget) {
     if (!vault) return;
     if (link.kind === "wiki") {
@@ -424,6 +443,7 @@
             bind:note={vault.notes[activeIndex]}
             {onedit}
             onlink={openLink}
+            {linkOptions}
             onrename={renameActive}
             ondelete={deleteActive}
           />

@@ -3,18 +3,20 @@
   import type { EditorView } from "@codemirror/view";
   import type { Note } from "../types";
   import { noteTitle } from "../notes";
-  import { createEditor, setContent, type LinkTarget } from "../editor/setup";
+  import { createEditor, setContent, type LinkOption, type LinkTarget } from "../editor/setup";
   import Icon from "./Icon.svelte";
 
   interface Props {
     note: Note;
     onedit: () => void;
     onlink: (link: LinkTarget) => void;
+    /** Suggestions for [[ autocomplete; called each time it opens. */
+    linkOptions: () => LinkOption[];
     /** Resolves false if the rename failed, so the title is reset. */
     onrename: (title: string) => Promise<boolean>;
     ondelete: () => void;
   }
-  let { note = $bindable(), onedit, onlink, onrename, ondelete }: Props = $props();
+  let { note = $bindable(), onedit, onlink, linkOptions, onrename, ondelete }: Props = $props();
 
   let title = $derived(noteTitle(note.path));
   let host = $state<HTMLDivElement>();
@@ -30,6 +32,7 @@
         onedit();
       },
       onlink,
+      linkOptions,
     );
     return () => view?.destroy();
   });
