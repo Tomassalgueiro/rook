@@ -1,6 +1,6 @@
 // Obsidian-style live preview: styles Markdown in place and hides syntax marks
 // (#, **, `, link targets…) except on lines the cursor is on.
-import { StateField, type Range } from "@codemirror/state";
+import { StateField, type EditorState, type Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import type { Tree } from "@lezer/common";
 import { GFM, parser } from "@lezer/markdown";
@@ -25,10 +25,48 @@ const inlineStyles: Record<string, string> = {
   Link: "md-link",
   ListMark: "md-list-mark",
   TaskMarker: "md-task",
+  URL: "md-link",
 };
+
+const WIKILINK = /\[\[([^\]\n]+)\]\]/g;
+
+export type LinkTarget = { kind: "wiki"; target: string } | { kind: "url"; href: string };
 
 /** Marks hidden when their line isn't being edited. */
 const syntaxMarks = new Set(["HeaderMark", "EmphasisMark", "CodeMark", "StrikethroughMark", "QuoteMark"]);
+
+const CODE = new Set(["InlineCode", "FencedCode", "CodeBlock"]);
+
+function inCode(tree: Tree, pos: number): boolean {
+  for (let n: ReturnType<Tree["resolveInner"]> | null = tree.resolveInner(pos, 1); n; n = n.parent) {
+    if (CODE.has(n.name)) return true;
+  }
+  return false;
+}
+
+/** Whether `pos` is on a line being edited, i.e. where syntax is shown. */
+export function isLineActive(view: EditorView, pos: number): boolean {
+  return activeLines(view).has(view.state.doc.lineAt(pos).number);
+}
+
+/** The link under `pos`, if any: a [[wikilink]], [text](url) or bare URL. */
+export function linkAt(state: EditorState, pos: number): LinkTarget | null {
+  const tree = state.field(syntax);
+  if (inCode(tree, pos)) return null;
+  const line = state.doc.lineAt(pos);
+  for (const m of line.text.matchAll(WIKILINK)) {
+    const start = line.from + m.index;
+    if (pos >= start && pos <= start + m[0].length) return { kind: "wiki", target: m[1] };
+  }
+  for (let n: ReturnType<Tree["resolveInner"]> | null = tree.resolveInner(pos, 1); n; n = n.parent) {
+    if (n.name === "URL") return { kind: "url", href: state.doc.sliceString(n.from, n.to) };
+    if (n.name === "Link") {
+      const url = n.getChild("URL");
+      return url ? { kind: "url", href: state.doc.sliceString(url.from, url.to) } : null;
+    }
+  }
+  return null;
+}
 
 /** Line numbers touched by the selection; empty when the editor isn't focused. */
 function activeLines(view: EditorView): Set<number> {
@@ -94,14 +132,9 @@ function build(view: EditorView): DecorationSet {
     // [[wikilinks]] aren't CommonMark, so match them per line, skipping code.
     for (let pos = from; pos <= to; ) {
       const ln = doc.lineAt(pos);
-      for (const m of ln.text.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
+      for (const m of ln.text.matchAll(WIKILINK)) {
         const start = ln.from + m.index;
-        const inner = tree.resolveInner(start + 2, 1);
-        let inCode = false;
-        for (let n: typeof inner | null = inner; n; n = n.parent) {
-          if (n.name === "InlineCode" || n.name === "FencedCode" || n.name === "CodeBlock") inCode = true;
-        }
-        if (inCode) continue;
+        if (inCode(tree, start + 2)) continue;
         const end = start + m[0].length;
         decos.push(mark("md-wikilink").range(start, end));
         if (!active.has(ln.number)) {
@@ -149,7 +182,7 @@ const theme = EditorView.theme({
   ".md-codeblock": { fontFamily: "var(--font-mono)", fontSize: "0.9em", background: "var(--bg-code)" },
   ".md-quote": { borderLeft: "2px solid var(--accent)", paddingLeft: "1em", color: "var(--text-muted)" },
   ".md-hr": { borderBottom: "1px solid var(--border)", marginBottom: "0.8em" },
-  ".md-link, .md-wikilink": { color: "var(--accent)" },
+  ".md-link, .md-wikilink": { color: "var(--accent)", cursor: "pointer" },
   ".md-list-mark, .md-task": { color: "var(--accent)" },
 });
 

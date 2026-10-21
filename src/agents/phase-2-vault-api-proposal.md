@@ -212,3 +212,5 @@ newest first, at most 10. A missing or corrupt file just means the list is empty
 - `open_file(path)`: opens the file with the OS default app, from Rust (no opener permission is
   given to the webview). Only supported extensions are accepted, so it can't launch executables.
   The usual vault containment checks apply.
+- `open_url(url)`: opens `http://`, `https://` and `mailto:` links with the OS default app;
+  any other scheme → `InvalidPath`. Used for clicked links in notes.

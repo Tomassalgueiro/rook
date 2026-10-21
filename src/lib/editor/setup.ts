@@ -1,7 +1,9 @@
 import { Annotation, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { livePreview } from "./livePreview";
+import { isLineActive, linkAt, livePreview, type LinkTarget } from "./livePreview";
+
+export type { LinkTarget };
 
 /** Marks programmatic content replacement, which isn't a user edit. */
 const external = Annotation.define<boolean>();
@@ -19,7 +21,12 @@ const chrome = EditorView.theme({
 });
 
 /** A minimal Markdown editor: no gutters, soft-wrapped, live preview. */
-export function createEditor(parent: HTMLElement, doc: string, onchange: (text: string) => void): EditorView {
+export function createEditor(
+  parent: HTMLElement,
+  doc: string,
+  onchange: (text: string) => void,
+  onlink: (link: LinkTarget) => void,
+): EditorView {
   return new EditorView({
     parent,
     state: EditorState.create({
@@ -31,6 +38,20 @@ export function createEditor(parent: HTMLElement, doc: string, onchange: (text: 
         EditorView.contentAttributes.of({ spellcheck: "false", "aria-label": "Note content" }),
         chrome,
         livePreview(),
+        // Click opens a rendered link; on the line being edited it needs Ctrl/Cmd+click.
+        EditorView.domEventHandlers({
+          mousedown(e, view) {
+            if (e.button !== 0) return false;
+            const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+            if (pos === null) return false;
+            if (!(e.ctrlKey || e.metaKey) && isLineActive(view, pos)) return false;
+            const link = linkAt(view.state, pos);
+            if (!link) return false;
+            e.preventDefault();
+            onlink(link);
+            return true;
+          },
+        }),
         EditorView.updateListener.of((u) => {
           if (u.docChanged && !u.transactions.some((tr) => tr.annotation(external))) {
             onchange(u.state.doc.toString());

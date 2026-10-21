@@ -1,7 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { FolderAction, Note, Vault } from "$lib/types";
-  import { buildTree, backlinks, noteTitle, wordCount } from "$lib/notes";
+  import {
+    buildTree,
+    backlinks,
+    noteTitle,
+    resolveRelative,
+    resolveWikilink,
+    wikilinkName,
+    wordCount,
+  } from "$lib/notes";
   import * as api from "$lib/vault";
   import { errorMessage, isVaultError, type RecentVault, type VaultInfo } from "$lib/vault";
   import Toolbar from "$lib/components/Toolbar.svelte";
@@ -11,6 +19,7 @@
   import StatusBar from "$lib/components/StatusBar.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Dialog from "$lib/components/Dialog.svelte";
+  import type { LinkTarget } from "$lib/editor/setup";
   import VaultPicker from "$lib/components/VaultPicker.svelte";
   import Resizer from "$lib/components/Resizer.svelte";
 
@@ -215,6 +224,49 @@
     }
   }
 
+  // ---- Links ----
+
+  async function openLink(link: LinkTarget) {
+    if (!vault) return;
+    if (link.kind === "wiki") {
+      const name = wikilinkName(link.target);
+      if (!name) return;
+      const note = resolveWikilink(vault.notes, name);
+      if (note) return select(note.path);
+      const file = resolveWikilink(vault.files, name);
+      if (file) return api.openFile(file.path).catch(report);
+      // Like Obsidian, following a link to a missing note creates it.
+      await flush();
+      try {
+        const entry = await api.createNote(`${name}.md`);
+        vault.notes.push({ ...entry, content: "" });
+        activePath = entry.path;
+        status = `Created ${entry.path}`;
+      } catch (err) {
+        report(err);
+      }
+      return;
+    }
+
+    const href = link.href.trim();
+    if (/^(https?:|mailto:)/i.test(href)) return api.openUrl(href).catch(report);
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return void (status = `Can't open ${href}`);
+    // Relative link to a note or file, resolved from the current note's folder.
+    let target = href.split("#")[0];
+    try {
+      target = decodeURIComponent(target);
+    } catch {
+      // Not URI-encoded; use as-is.
+    }
+    const folder = activePath?.slice(0, Math.max(activePath.lastIndexOf("/"), 0)) ?? "";
+    const path = target ? resolveRelative(folder, target) : null;
+    const note = path && vault.notes.find((n) => n.path === path || n.path === `${path}.md`);
+    if (note) return select(note.path);
+    const file = path && vault.files.find((f) => f.path === path);
+    if (file) return api.openFile(file.path).catch(report);
+    status = `Link target not found: ${href}`;
+  }
+
   async function renameActive(title: string): Promise<boolean> {
     const note = activeNote;
     if (!note) return false;
@@ -371,6 +423,7 @@
           <Editor
             bind:note={vault.notes[activeIndex]}
             {onedit}
+            onlink={openLink}
             onrename={renameActive}
             ondelete={deleteActive}
           />

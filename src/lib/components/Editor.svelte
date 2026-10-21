@@ -3,17 +3,18 @@
   import type { EditorView } from "@codemirror/view";
   import type { Note } from "../types";
   import { noteTitle } from "../notes";
-  import { createEditor, setContent } from "../editor/setup";
+  import { createEditor, setContent, type LinkTarget } from "../editor/setup";
   import Icon from "./Icon.svelte";
 
   interface Props {
     note: Note;
     onedit: () => void;
+    onlink: (link: LinkTarget) => void;
     /** Resolves false if the rename failed, so the title is reset. */
     onrename: (title: string) => Promise<boolean>;
     ondelete: () => void;
   }
-  let { note = $bindable(), onedit, onrename, ondelete }: Props = $props();
+  let { note = $bindable(), onedit, onlink, onrename, ondelete }: Props = $props();
 
   let title = $derived(noteTitle(note.path));
   let host = $state<HTMLDivElement>();
@@ -21,10 +22,15 @@
 
   onMount(() => {
     if (!host) return;
-    view = createEditor(host, note.content, (text) => {
-      note.content = text;
-      onedit();
-    });
+    view = createEditor(
+      host,
+      note.content,
+      (text) => {
+        note.content = text;
+        onedit();
+      },
+      onlink,
+    );
     return () => view?.destroy();
   });
 

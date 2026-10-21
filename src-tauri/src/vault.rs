@@ -446,6 +446,18 @@ pub async fn open_file(app: AppHandle, state: State<'_, VaultState>, path: Strin
         .map_err(|e| VaultError::new(ErrorKind::Io, format!("{path}: couldn't open ({e})")))
 }
 
+/// Opens a web or mail link in the system's default app.
+#[tauri::command]
+pub async fn open_url(app: AppHandle, url: String) -> Result<(), VaultError> {
+    let lower = url.to_ascii_lowercase();
+    if !["https://", "http://", "mailto:"].iter().any(|scheme| lower.starts_with(scheme)) {
+        return Err(VaultError::new(ErrorKind::InvalidPath, "Only http(s) and mailto links can be opened"));
+    }
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| VaultError::new(ErrorKind::Io, format!("Couldn't open link ({e})")))
+}
+
 #[tauri::command]
 pub async fn create_folder(state: State<'_, VaultState>, path: String) -> Result<(), VaultError> {
     let root = state.root()?;

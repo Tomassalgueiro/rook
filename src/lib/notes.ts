@@ -56,6 +56,35 @@ function sortTree(nodes: TreeNode[]) {
   for (const n of nodes) if (n.kind === "folder") sortTree(n.children);
 }
 
+/** "[[Note#Heading|alias]]" target -> "Note". */
+export function wikilinkName(target: string): string {
+  return target.split(/[|#]/)[0].trim();
+}
+
+/** Finds what a [[wikilink]] points to: a full vault path first, then a note title or file name. */
+export function resolveWikilink<T extends { path: string }>(items: T[], name: string): T | undefined {
+  const want = name.toLowerCase().replace(/\.md$/, "");
+  const bare = (p: string) => p.toLowerCase().replace(/\.md$/, "");
+  return (
+    items.find((x) => bare(x.path) === want) ??
+    items.find((x) => bare(x.path.slice(x.path.lastIndexOf("/") + 1)) === want)
+  );
+}
+
+/** Joins a relative link like "../a/b.md" onto a folder; null if it climbs out of the vault. */
+export function resolveRelative(folder: string, href: string): string | null {
+  const parts = folder ? folder.split("/") : [];
+  for (const part of href.split("/")) {
+    if (part === "..") {
+      if (!parts.length) return null;
+      parts.pop();
+    } else if (part && part !== ".") {
+      parts.push(part);
+    }
+  }
+  return parts.join("/");
+}
+
 /** Notes containing a [[wikilink]] to the given note's title. */
 export function backlinks(notes: Note[], target: Note): Note[] {
   const title = noteTitle(target.path).toLowerCase();
