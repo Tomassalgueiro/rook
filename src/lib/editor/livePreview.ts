@@ -1,6 +1,6 @@
 // Obsidian-style live preview: styles Markdown in place and hides syntax marks
 // (#, **, `, link targets…) except on lines the cursor is on.
-import { StateEffect, StateField, type EditorState, type Range } from "@codemirror/state";
+import { Facet, StateEffect, StateField, type EditorState, type Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import type { Tree } from "@lezer/common";
 import { GFM, parser } from "@lezer/markdown";
@@ -106,9 +106,16 @@ export function findHeading(state: EditorState, heading: string): number | null 
 /** Dispatch to restyle links after the vault's notes changed (e.g. a linked note was created). */
 export const refreshLinks = StateEffect.define<null>();
 
-/** Line numbers touched by the selection; empty when the editor isn't focused. */
+/** When true, Markdown syntax is shown on every line instead of only the one being edited. */
+export const showSyntax = Facet.define<boolean, boolean>({ combine: (values) => values.some(Boolean) });
+
+/** Line numbers where syntax is shown: the selection's lines (if focused), or all with `showSyntax`. */
 function activeLines(view: EditorView): Set<number> {
   const lines = new Set<number>();
+  if (view.state.facet(showSyntax)) {
+    for (let n = 1; n <= view.state.doc.lines; n++) lines.add(n);
+    return lines;
+  }
   if (!view.hasFocus) return lines;
   const { doc } = view.state;
   for (const r of view.state.selection.ranges) {
@@ -195,7 +202,9 @@ const decorations = (links: LinkProvider) =>
         this.decorations = build(view, links);
       }
       update(u: ViewUpdate) {
-        const refresh = u.transactions.some((tr) => tr.effects.some((e) => e.is(refreshLinks)));
+        const refresh =
+          u.transactions.some((tr) => tr.effects.some((e) => e.is(refreshLinks))) ||
+          u.startState.facet(showSyntax) !== u.state.facet(showSyntax);
         if (refresh || u.docChanged || u.selectionSet || u.viewportChanged || u.focusChanged) {
           this.decorations = build(u.view, links);
         }

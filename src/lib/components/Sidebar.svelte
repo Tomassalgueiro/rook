@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { FolderAction, MoveKind, TreeNode } from "../types";
+  import type { SearchHit } from "../search";
+  import SearchResults from "./SearchResults.svelte";
   import Icon from "./Icon.svelte";
   import NoteTree from "./NoteTree.svelte";
 
@@ -8,7 +10,9 @@
     vaultPath: string;
     tree: TreeNode[];
     activePath: string | null;
-    searching: boolean;
+    /** Search results while a query is active; null shows the folder tree. */
+    results: SearchHit[] | null;
+    onopenresult: (hit: SearchHit) => void;
     onselect: (path: string) => void;
     onopenfile: (path: string) => void;
     onnewnote: () => void;
@@ -22,7 +26,8 @@
     vaultPath,
     tree,
     activePath,
-    searching,
+    results,
+    onopenresult,
     onselect,
     onopenfile,
     onnewnote,
@@ -131,12 +136,13 @@
       }
     }}
   >
-    {#if tree.length}
+    {#if results}
+      <SearchResults hits={results} onopen={onopenresult} />
+    {:else if tree.length}
       <NoteTree
         nodes={tree}
         {activePath}
         {expanded}
-        forceOpen={searching}
         {dropTarget}
         {onselect}
         {onopenfile}
@@ -144,7 +150,7 @@
         {onfolderaction}
       />
     {:else}
-      <p class="empty">{searching ? "No matching notes" : "No notes yet"}</p>
+      <p class="empty">No notes yet</p>
     {/if}
   </nav>
 </aside>

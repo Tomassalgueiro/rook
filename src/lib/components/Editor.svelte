@@ -7,7 +7,11 @@
     createEditor,
     restyleLinks,
     scrollToHeading as scrollViewToHeading,
+    selectRange as selectViewRange,
     setContent,
+    setOptions,
+    setVim,
+    type EditorOptions,
     type LinkProvider,
     type LinkTarget,
   } from "../editor/setup";
@@ -20,11 +24,29 @@
     links: LinkProvider;
     /** Changes whenever the set of notes/files changes, so link styling can refresh. */
     linkKey: string;
+    options: EditorOptions;
+    vim: boolean;
+    /** Vim mode name for the status bar, or null when Vim is off. */
+    onvimmode: (mode: string | null) => void;
+    /** `:w` in Vim mode. */
+    onsave: () => void;
     /** Resolves false if the rename failed, so the title is reset. */
     onrename: (title: string) => Promise<boolean>;
     ondelete: () => void;
   }
-  let { note = $bindable(), onedit, onlink, links, linkKey, onrename, ondelete }: Props = $props();
+  let {
+    note = $bindable(),
+    onedit,
+    onlink,
+    links,
+    linkKey,
+    options,
+    vim,
+    onvimmode,
+    onsave,
+    onrename,
+    ondelete,
+  }: Props = $props();
 
   let title = $derived(noteTitle(note.path));
   let host = $state<HTMLDivElement>();
@@ -32,17 +54,19 @@
 
   onMount(() => {
     if (!host) return;
-    view = createEditor(
-      host,
-      note.content,
-      (text) => {
+    view = createEditor(host, note.content, {
+      ...options,
+      onchange: (text) => {
         note.content = text;
         onedit();
       },
       onlink,
       links,
-    );
-    return () => view?.destroy();
+    });
+    return () => {
+      view?.destroy();
+      onvimmode(null);
+    };
   });
 
   // Pull in content replaced from outside, e.g. "Reload from disk" or an external edit.
@@ -50,6 +74,11 @@
     const text = note.content;
     if (view && text !== view.state.doc.toString()) setContent(view, text);
   });
+
+  /** Selects a range of this note's text (e.g. a search match) and scrolls to it. */
+  export function selectRange(from: number, to: number) {
+    if (view) selectViewRange(view, from, to);
+  }
 
   /** Scrolls to a heading in this note; false if it doesn't exist. */
   export function scrollToHeading(heading: string): boolean {
@@ -59,6 +88,16 @@
   $effect(() => {
     void linkKey;
     if (view) restyleLinks(view);
+  });
+
+  $effect(() => {
+    const next = { showSyntax: options.showSyntax, spellcheck: options.spellcheck };
+    if (view) setOptions(view, next);
+  });
+
+  $effect(() => {
+    const on = vim;
+    if (view) setVim(view, on, { onsave, onmode: onvimmode });
   });
 
   async function commitTitle() {
@@ -95,7 +134,7 @@
     display: flex;
     flex-direction: column;
     width: 100%;
-    max-width: 720px;
+    max-width: var(--content-width, 720px);
     margin: 0 auto;
     padding: 48px 40px 0;
   }

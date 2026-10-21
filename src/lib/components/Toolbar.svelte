@@ -8,6 +8,9 @@
     disabled: boolean;
     ontogglesidebar: () => void;
     ontogglebacklinks: () => void;
+    /** Enter in the search box. */
+    onsearchsubmit: () => void;
+    onopensettings: () => void;
     searchInput?: HTMLInputElement;
   }
   let {
@@ -17,6 +20,8 @@
     disabled,
     ontogglesidebar,
     ontogglebacklinks,
+    onsearchsubmit,
+    onopensettings,
     searchInput = $bindable(),
   }: Props = $props();
 </script>
@@ -25,11 +30,25 @@
   <button class="icon" title="Toggle sidebar (Ctrl+\)" aria-label="Toggle sidebar" aria-pressed={sidebarOpen} onclick={ontogglesidebar}>
     <Icon name="panel-left" />
   </button>
-  <label class="search">
+  <form
+    class="search"
+    role="search"
+    onsubmit={(e) => {
+      e.preventDefault();
+      onsearchsubmit();
+    }}
+  >
     <Icon name="search" size={14} />
-    <input type="search" placeholder="Search notes" bind:value={query} bind:this={searchInput} {disabled} />
+    <input
+      type="search"
+      placeholder="Search notes"
+      aria-label="Search notes"
+      bind:value={query}
+      bind:this={searchInput}
+      {disabled}
+    />
     <kbd>Ctrl K</kbd>
-  </label>
+  </form>
   <button
     class="icon"
     title="Toggle backlinks (Ctrl+Shift+B)"
@@ -38,6 +57,9 @@
     onclick={ontogglebacklinks}
   >
     <Icon name="panel-right" />
+  </button>
+  <button class="icon" title="Settings (Ctrl+,)" aria-label="Settings" onclick={onopensettings}>
+    <Icon name="settings" />
   </button>
 </header>
 

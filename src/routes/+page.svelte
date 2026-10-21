@@ -22,6 +22,9 @@
   import type { LinkOption, LinkProvider, LinkTarget } from "$lib/editor/setup";
   import { headingsIn } from "$lib/editor/livePreview";
   import { updateLinksIn } from "$lib/linkUpdate";
+  import { search, type SearchHit } from "$lib/search";
+  import { cssVars, loadSettings, saveSettings } from "$lib/settings";
+  import Settings from "$lib/components/Settings.svelte";
   import VaultPicker from "$lib/components/VaultPicker.svelte";
   import Resizer from "$lib/components/Resizer.svelte";
 
@@ -31,6 +34,7 @@
   let sidebarOpen = $state(true);
   let backlinksOpen = $state(true);
   let status = $state("");
+  let vimMode = $state<string | null>(null);
   let recent = $state<RecentVault[]>([]);
 
   // Panel widths are a per-machine convenience, so localStorage is enough.
@@ -54,15 +58,26 @@
   let searchInput = $state<HTMLInputElement>();
   let dialog: Dialog;
   let editor = $state<Editor>();
+  let settingsDialog: Settings;
+
+  let settings = $state(loadSettings());
+  $effect(() => {
+    saveSettings(settings);
+    for (const [name, value] of Object.entries(cssVars(settings))) {
+      document.documentElement.style.setProperty(name, value);
+    }
+  });
+  const editorOptions = $derived({ showSyntax: settings.syntax === "always", spellcheck: settings.spellcheck });
 
   const activeIndex = $derived(vault?.notes.findIndex((n) => n.path === activePath) ?? -1);
   const activeNote = $derived(vault && activeIndex >= 0 ? vault.notes[activeIndex] : null);
-  const tree = $derived.by(() => {
-    if (!vault) return [];
-    const q = query.trim().toLowerCase();
-    if (!q) return buildTree(vault.notes, vault.folders, vault.files);
-    const match = (x: { path: string }) => x.path.toLowerCase().includes(q);
-    return buildTree(vault.notes.filter(match), [], vault.files.filter(match));
+  const tree = $derived(vault ? buildTree(vault.notes, vault.folders, vault.files) : []);
+  /** Full-text results while searching; null shows the folder tree. */
+  const results = $derived(vault && query.trim() ? search(vault.notes, vault.files, query) : null);
+
+  // Results show in the sidebar, so open it when a search starts.
+  $effect(() => {
+    if (query.trim()) sidebarOpen = true;
   });
   const links = $derived(vault && activeNote ? backlinks(vault.notes, activeNote) : []);
 
@@ -271,6 +286,16 @@
     if (!editor?.scrollToHeading(heading)) status = `Heading not found: ${heading}`;
   }
 
+  /** Opens a search result; for a text match, selects it in the note. */
+  async function openResult(hit: SearchHit | undefined) {
+    if (!hit) return;
+    if (hit.kind !== "note") return api.openFile(hit.path).catch(report);
+    if (hit.path !== activePath) await select(hit.path);
+    if (!hit.match) return;
+    await tick(); // let the editor for the newly opened note mount
+    editor?.selectRange(hit.match.from, hit.match.to);
+  }
+
   async function openLink(link: LinkTarget) {
     if (!vault) return;
     if (link.kind === "wiki") {
@@ -332,7 +357,7 @@
    * Returns how many notes changed.
    */
   async function updateLinks(moved: Map<string, string>, before: ReturnType<typeof snapshot>): Promise<number> {
-    if (!vault) return 0;
+    if (!vault || !settings.updateLinks) return 0;
     const oldPathOf = new Map([...moved].map(([from, to]) => [to, from]));
     let updated = 0;
     for (const note of vault.notes) {
@@ -498,7 +523,8 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (!(e.ctrlKey || e.metaKey)) return;
+    // Keys the editor already handled (e.g. Vim's Ctrl+O jump-back) don't trigger Rook shortcuts.
+    if (e.defaultPrevented || !(e.ctrlKey || e.metaKey)) return;
     const key = e.key.toLowerCase();
     if (key === "\\") sidebarOpen = !sidebarOpen;
     else if (key === "b" && e.shiftKey) backlinksOpen = !backlinksOpen;
@@ -507,6 +533,7 @@
     else if (key === "k") searchInput?.focus();
     else if (key === "s") flush();
     else if (key === "o") openVault();
+    else if (key === ",") settingsDialog.open();
     else return;
     e.preventDefault();
   }
@@ -523,6 +550,8 @@
     disabled={!vault}
     ontogglesidebar={() => (sidebarOpen = !sidebarOpen)}
     ontogglebacklinks={() => (backlinksOpen = !backlinksOpen)}
+    onsearchsubmit={() => openResult(results?.[0])}
+    onopensettings={() => settingsDialog.open()}
   />
 
   <div class="body">
@@ -532,7 +561,8 @@
         vaultPath={vault.path}
         {tree}
         {activePath}
-        searching={query.trim() !== ""}
+        {results}
+        onopenresult={openResult}
         onselect={select}
         onopenfile={(path) => api.openFile(path).catch(report)}
         onnewnote={() => newNote()}
@@ -561,6 +591,10 @@
             onlink={openLink}
             links={linkProvider}
             {linkKey}
+            options={editorOptions}
+            vim={settings.vim}
+            onvimmode={(mode) => (vimMode = mode)}
+            onsave={() => flush().then(() => status.startsWith("Saved") || (status = "Saved"))}
             onrename={renameActive}
             ondelete={deleteActive}
           />
@@ -588,10 +622,12 @@
     noteCount={vault ? vault.notes.length : null}
     words={activeNote ? wordCount(activeNote.content) : null}
     {status}
+    mode={vimMode}
   />
 </div>
 
 <Dialog bind:this={dialog} />
+<Settings bind:this={settingsDialog} bind:settings />
 
 <svelte:head>
   <title>{activeNote ? `${noteTitle(activeNote.path)} — Rook` : "Rook"}</title>

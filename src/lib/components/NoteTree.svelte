@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { FolderAction, TreeNode } from "../types";
-  import type { FileKind } from "../vault";
-  import Icon, { type IconName } from "./Icon.svelte";
+  import Icon, { fileIcons, type IconName } from "./Icon.svelte";
   import NoteTree from "./NoteTree.svelte";
 
   interface Props {
@@ -9,8 +8,6 @@
     activePath: string | null;
     /** Folders the user opened (true) or closed (false); unset folders follow the default. */
     expanded: Record<string, boolean>;
-    /** Open every folder, e.g. while searching. */
-    forceOpen: boolean;
     /** Folder highlighted as the current drop target while dragging. */
     dropTarget: string | null;
     onselect: (path: string) => void;
@@ -23,7 +20,6 @@
     nodes,
     activePath,
     expanded,
-    forceOpen,
     dropTarget,
     onselect,
     onopenfile,
@@ -32,11 +28,8 @@
     depth = 0,
   }: Props = $props();
 
-  const fileIcons: Record<FileKind, IconName> = { pdf: "file-pdf", image: "image", video: "film" };
-
   // Folders start closed, except the ones leading to the open note.
-  const isOpen = (path: string) =>
-    forceOpen || (expanded[path] ?? (activePath?.startsWith(`${path}/`) ?? false));
+  const isOpen = (path: string) => expanded[path] ?? activePath?.startsWith(`${path}/`) ?? false;
 
   const actions: [FolderAction, IconName, string][] = [
     ["note", "file-plus", "New note here"],
@@ -82,7 +75,6 @@
             nodes={node.children}
             {activePath}
             {expanded}
-            {forceOpen}
             {dropTarget}
             {onselect}
             {onopenfile}

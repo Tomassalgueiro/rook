@@ -13,7 +13,7 @@
   --text-muted: #a3a3ab;
   --text-faint: #6e6e78;
   --accent: #9d8cf5;
-  --selection: rgb(157 140 245 / 0.28);
+  --selection: color-mix(in srgb, var(--accent) 28%, transparent);
   --danger: #ef6b6b;
   --file-pdf: #e07a6f;
   --file-image: #6fbf8e;
