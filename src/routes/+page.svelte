@@ -1,156 +1,157 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import type { Vault } from "$lib/types";
+  import { buildTree, backlinks, noteTitle, wordCount } from "$lib/notes";
+  import { mockVault } from "$lib/mock/vault";
+  import Toolbar from "$lib/components/Toolbar.svelte";
+  import Sidebar from "$lib/components/Sidebar.svelte";
+  import Editor from "$lib/components/Editor.svelte";
+  import BacklinksPanel from "$lib/components/BacklinksPanel.svelte";
+  import StatusBar from "$lib/components/StatusBar.svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
 
-  let name = $state("");
-  let greetMsg = $state("");
+  let vault = $state<Vault | null>(structuredClone(mockVault));
+  let activePath = $state<string | null>(null);
+  let query = $state("");
+  let sidebarOpen = $state(true);
+  let backlinksOpen = $state(true);
+  let searchInput = $state<HTMLInputElement>();
 
-  async function greet(event: Event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
+  const activeIndex = $derived(vault?.notes.findIndex((n) => n.path === activePath) ?? -1);
+  const activeNote = $derived(vault && activeIndex >= 0 ? vault.notes[activeIndex] : null);
+  const tree = $derived.by(() => {
+    if (!vault) return [];
+    const q = query.trim().toLowerCase();
+    return buildTree(q ? vault.notes.filter((n) => n.path.toLowerCase().includes(q)) : vault.notes);
+  });
+  const links = $derived(vault && activeNote ? backlinks(vault.notes, activeNote) : []);
+
+  function openVault() {
+    vault = structuredClone(mockVault);
+  }
+
+  function closeVault() {
+    vault = null;
+    activePath = null;
+    query = "";
+  }
+
+  function newNote() {
+    if (!vault) return;
+    let n = 1;
+    while (vault.notes.some((x) => x.path === `Untitled ${n}.md`)) n++;
+    const path = `Untitled ${n}.md`;
+    vault.notes.push({ path, content: "" });
+    activePath = path;
+    sidebarOpen = true;
+  }
+
+  function onkeydown(e: KeyboardEvent) {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const key = e.key.toLowerCase();
+    if (key === "\\") sidebarOpen = !sidebarOpen;
+    else if (key === "b" && e.shiftKey) backlinksOpen = !backlinksOpen;
+    else if (key === "n" && !e.shiftKey) newNote();
+    else if (key === "k") searchInput?.focus();
+    else return;
+    e.preventDefault();
   }
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
+<svelte:window {onkeydown} />
 
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
+<div class="app">
+  <Toolbar
+    bind:query
+    bind:searchInput
+    {sidebarOpen}
+    {backlinksOpen}
+    disabled={!vault}
+    ontogglesidebar={() => (sidebarOpen = !sidebarOpen)}
+    ontogglebacklinks={() => (backlinksOpen = !backlinksOpen)}
+    onnewnote={newNote}
+  />
+
+  <div class="body">
+    {#if vault && sidebarOpen}
+      <Sidebar
+        vaultName={vault.name}
+        {tree}
+        {activePath}
+        onselect={(p) => (activePath = p)}
+        onclosevault={closeVault}
+      />
+    {/if}
+
+    <main>
+      {#if !vault}
+        <EmptyState title="No vault open">
+          <p>A vault is a folder of Markdown notes.</p>
+          <button class="primary" onclick={openVault}>Open demo vault</button>
+        </EmptyState>
+      {:else if activeNote}
+        {#key activePath}
+          <Editor bind:note={vault.notes[activeIndex]} />
+        {/key}
+      {:else}
+        <EmptyState title="No note selected">
+          <p>Pick a note from the sidebar.</p>
+          <p class="hints">
+            <span><kbd>Ctrl</kbd> <kbd>N</kbd> new note</span>
+            <span><kbd>Ctrl</kbd> <kbd>K</kbd> search</span>
+            <span><kbd>Ctrl</kbd> <kbd>\</kbd> sidebar</span>
+          </p>
+        </EmptyState>
+      {/if}
+    </main>
+
+    {#if vault && backlinksOpen && activeNote}
+      <BacklinksPanel {links} onselect={(p) => (activePath = p)} />
+    {/if}
   </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
-</main>
+  <StatusBar
+    noteCount={vault ? vault.notes.length : null}
+    words={activeNote ? wordCount(activeNote.content) : null}
+  />
+</div>
+
+<svelte:head>
+  <title>{activeNote ? `${noteTitle(activeNote.path)} — Rook` : "Rook"}</title>
+</svelte:head>
 
 <style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
   }
-
-  a:hover {
-    color: #24c8db;
+  .body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
   }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow-y: auto;
   }
-  button:active {
-    background-color: #0f0f0f69;
+  .primary {
+    background: var(--accent);
+    color: #fff;
+    padding: 6px 14px;
   }
-}
-
+  .hints {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    :global(:root) {
+      --sidebar-w: 200px;
+      --panel-w: 180px;
+    }
+  }
 </style>
