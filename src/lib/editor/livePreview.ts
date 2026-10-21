@@ -1,9 +1,11 @@
 // Obsidian-style live preview: styles Markdown in place and hides syntax marks
 // (#, **, `, link targets…) except on lines the cursor is on.
-import { StateField, type EditorState, type Range } from "@codemirror/state";
+import { StateEffect, StateField, type EditorState, type Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import type { Tree } from "@lezer/common";
 import { GFM, parser } from "@lezer/markdown";
+import { headingSlug } from "../notes";
+import type { LinkProvider, LinkTarget } from "./types";
 
 const markdown = parser.configure(GFM);
 
@@ -29,8 +31,6 @@ const inlineStyles: Record<string, string> = {
 };
 
 const WIKILINK = /\[\[([^\]\n]+)\]\]/g;
-
-export type LinkTarget = { kind: "wiki"; target: string } | { kind: "url"; href: string };
 
 /** Marks hidden when their line isn't being edited. */
 const syntaxMarks = new Set(["HeaderMark", "EmphasisMark", "CodeMark", "StrikethroughMark", "QuoteMark"]);
@@ -68,6 +68,41 @@ export function linkAt(state: EditorState, pos: number): LinkTarget | null {
   return null;
 }
 
+/** Headings in a parsed document; `lineText` returns the text of the line containing a position. */
+function collectHeadings(tree: Tree, lineText: (pos: number) => string): { title: string; from: number }[] {
+  const out: { title: string; from: number }[] = [];
+  tree.iterate({
+    enter: (n) => {
+      const atx = n.name.startsWith("ATXHeading");
+      if (!atx && !n.name.startsWith("SetextHeading")) return;
+      const text = lineText(n.from);
+      const title = (atx ? text.replace(/^\s*#+\s*/, "").replace(/\s+#+\s*$/, "") : text).trim();
+      if (title) out.push({ title, from: n.from });
+      return false;
+    },
+  });
+  return out;
+}
+
+/** Heading titles of a Markdown text, in order (code blocks excluded). */
+export function headingsIn(text: string): string[] {
+  const lineText = (pos: number) => {
+    const end = text.indexOf("\n", pos);
+    return text.slice(text.lastIndexOf("\n", pos - 1) + 1, end < 0 ? text.length : end);
+  };
+  return collectHeadings(markdown.parse(text), lineText).map((h) => h.title);
+}
+
+/** Start of the first heading matching `heading` (by text or slug), or null. */
+export function findHeading(state: EditorState, heading: string): number | null {
+  const want = headingSlug(heading);
+  const headings = collectHeadings(state.field(syntax), (pos) => state.doc.lineAt(pos).text);
+  return headings.find((h) => headingSlug(h.title) === want)?.from ?? null;
+}
+
+/** Dispatch to restyle links after the vault's notes changed (e.g. a linked note was created). */
+export const refreshLinks = StateEffect.define<null>();
+
 /** Line numbers touched by the selection; empty when the editor isn't focused. */
 function activeLines(view: EditorView): Set<number> {
   const lines = new Set<number>();
@@ -79,7 +114,7 @@ function activeLines(view: EditorView): Set<number> {
   return lines;
 }
 
-function build(view: EditorView): DecorationSet {
+function build(view: EditorView, links: LinkProvider): DecorationSet {
   const { state } = view;
   const { doc } = state;
   const tree = state.field(syntax);
@@ -136,7 +171,9 @@ function build(view: EditorView): DecorationSet {
         const start = ln.from + m.index;
         if (inCode(tree, start + 2)) continue;
         const end = start + m[0].length;
-        decos.push(mark("md-wikilink").range(start, end));
+        // Links to notes that don't exist yet are dimmed; clicking them creates the note.
+        const cls = links.exists(m[1]) ? "md-wikilink" : "md-wikilink md-unresolved";
+        decos.push(mark(cls).range(start, end));
         if (!active.has(ln.number)) {
           decos.push(hide.range(start, start + 2), hide.range(end - 2, end));
         }
@@ -147,20 +184,22 @@ function build(view: EditorView): DecorationSet {
   return Decoration.set(decos, true);
 }
 
-const decorations = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
-    constructor(view: EditorView) {
-      this.decorations = build(view);
-    }
-    update(u: ViewUpdate) {
-      if (u.docChanged || u.selectionSet || u.viewportChanged || u.focusChanged) {
-        this.decorations = build(u.view);
+const decorations = (links: LinkProvider) =>
+  ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = build(view, links);
       }
-    }
-  },
-  { decorations: (p) => p.decorations },
-);
+      update(u: ViewUpdate) {
+        const refresh = u.transactions.some((tr) => tr.effects.some((e) => e.is(refreshLinks)));
+        if (refresh || u.docChanged || u.selectionSet || u.viewportChanged || u.focusChanged) {
+          this.decorations = build(u.view, links);
+        }
+      }
+    },
+    { decorations: (p) => p.decorations },
+  );
 
 /** Line and mark styles; colors and fonts come from the app's CSS variables. */
 const theme = EditorView.theme({
@@ -183,10 +222,11 @@ const theme = EditorView.theme({
   ".md-quote": { borderLeft: "2px solid var(--accent)", paddingLeft: "1em", color: "var(--text-muted)" },
   ".md-hr": { borderBottom: "1px solid var(--border)", marginBottom: "0.8em" },
   ".md-link, .md-wikilink": { color: "var(--accent)", cursor: "pointer" },
+  ".md-unresolved": { opacity: "0.55" },
   ".md-list-mark, .md-task": { color: "var(--accent)" },
 });
 
-export function livePreview() {
-  return [syntax, decorations, theme];
+export function livePreview(links: LinkProvider) {
+  return [syntax, decorations(links), theme];
 }
 

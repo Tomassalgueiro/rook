@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import type { FolderAction, Note, Vault } from "$lib/types";
   import {
     buildTree,
     backlinks,
     noteTitle,
+    parseWikilink,
     resolveRelative,
     resolveWikilink,
-    wikilinkName,
     wordCount,
   } from "$lib/notes";
   import * as api from "$lib/vault";
@@ -19,7 +19,8 @@
   import StatusBar from "$lib/components/StatusBar.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Dialog from "$lib/components/Dialog.svelte";
-  import type { LinkOption, LinkTarget } from "$lib/editor/setup";
+  import type { LinkOption, LinkProvider, LinkTarget } from "$lib/editor/setup";
+  import { headingsIn } from "$lib/editor/livePreview";
   import VaultPicker from "$lib/components/VaultPicker.svelte";
   import Resizer from "$lib/components/Resizer.svelte";
 
@@ -51,6 +52,7 @@
   });
   let searchInput = $state<HTMLInputElement>();
   let dialog: Dialog;
+  let editor = $state<Editor>();
 
   const activeIndex = $derived(vault?.notes.findIndex((n) => n.path === activePath) ?? -1);
   const activeNote = $derived(vault && activeIndex >= 0 ? vault.notes[activeIndex] : null);
@@ -245,13 +247,37 @@
     return [...notes, ...files];
   }
 
+  const linkProvider: LinkProvider = {
+    targets: linkOptions,
+    headings: (name) => {
+      const note = name ? resolveWikilink(vault?.notes ?? [], name) : activeNote;
+      return note ? headingsIn(note.content) : [];
+    },
+    exists: (target) => {
+      const { name } = parseWikilink(target);
+      return !name || !!resolveWikilink(vault?.notes ?? [], name) || !!resolveWikilink(vault?.files ?? [], name);
+    },
+  };
+
+  /** Changes when notes or files are added, removed or renamed (not on content edits). */
+  const linkKey = $derived(vault ? [...vault.notes, ...vault.files].map((x) => x.path).join("\n") : "");
+
+  /** Opens a note, optionally scrolled to a heading. */
+  async function openAt(path: string, heading?: string) {
+    if (path !== activePath) await select(path);
+    if (!heading) return;
+    await tick(); // let the editor for the newly opened note mount
+    if (!editor?.scrollToHeading(heading)) status = `Heading not found: ${heading}`;
+  }
+
   async function openLink(link: LinkTarget) {
     if (!vault) return;
     if (link.kind === "wiki") {
-      const name = wikilinkName(link.target);
-      if (!name) return;
+      const { name, heading } = parseWikilink(link.target);
+      // [[#Heading]] points into the current note.
+      if (!name) return activePath && heading ? openAt(activePath, heading) : undefined;
       const note = resolveWikilink(vault.notes, name);
-      if (note) return select(note.path);
+      if (note) return openAt(note.path, heading);
       const file = resolveWikilink(vault.files, name);
       if (file) return api.openFile(file.path).catch(report);
       // Like Obsidian, following a link to a missing note creates it.
@@ -270,17 +296,22 @@
     const href = link.href.trim();
     if (/^(https?:|mailto:)/i.test(href)) return api.openUrl(href).catch(report);
     if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return void (status = `Can't open ${href}`);
-    // Relative link to a note or file, resolved from the current note's folder.
-    let target = href.split("#")[0];
-    try {
-      target = decodeURIComponent(target);
-    } catch {
-      // Not URI-encoded; use as-is.
-    }
+    // Relative link to a note or file (resolved from the current note's folder), maybe with #heading.
+    const decode = (part: string) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        return part; // Not URI-encoded; use as-is.
+      }
+    };
+    const hash = href.indexOf("#");
+    const target = decode(hash < 0 ? href : href.slice(0, hash));
+    const heading = hash < 0 ? undefined : decode(href.slice(hash + 1)) || undefined;
+    if (!target) return activePath && heading ? openAt(activePath, heading) : undefined;
     const folder = activePath?.slice(0, Math.max(activePath.lastIndexOf("/"), 0)) ?? "";
-    const path = target ? resolveRelative(folder, target) : null;
+    const path = resolveRelative(folder, target);
     const note = path && vault.notes.find((n) => n.path === path || n.path === `${path}.md`);
-    if (note) return select(note.path);
+    if (note) return openAt(note.path, heading);
     const file = path && vault.files.find((f) => f.path === path);
     if (file) return api.openFile(file.path).catch(report);
     status = `Link target not found: ${href}`;
@@ -440,10 +471,12 @@
       {:else if activeNote}
         {#key activePath}
           <Editor
+            bind:this={editor}
             bind:note={vault.notes[activeIndex]}
             {onedit}
             onlink={openLink}
-            {linkOptions}
+            links={linkProvider}
+            {linkKey}
             onrename={renameActive}
             ondelete={deleteActive}
           />

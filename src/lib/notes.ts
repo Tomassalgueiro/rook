@@ -56,9 +56,22 @@ function sortTree(nodes: TreeNode[]) {
   for (const n of nodes) if (n.kind === "folder") sortTree(n.children);
 }
 
-/** "[[Note#Heading|alias]]" target -> "Note". */
-export function wikilinkName(target: string): string {
-  return target.split(/[|#]/)[0].trim();
+/** "Note#Heading|alias" -> { name: "Note", heading: "Heading" }. Nested "A#B" keeps the last heading. */
+export function parseWikilink(target: string): { name: string; heading?: string } {
+  const ref = target.split("|")[0];
+  const hash = ref.indexOf("#");
+  if (hash < 0) return { name: ref.trim() };
+  const heading = ref.slice(hash + 1).split("#").pop()?.trim();
+  return { name: ref.slice(0, hash).trim(), heading: heading || undefined };
+}
+
+/** Normalizes heading text or a URL fragment so "My Heading!" and "my-heading" compare equal. */
+export function headingSlug(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
+    .replace(/[\s-]+/g, "-");
 }
 
 /** Finds what a [[wikilink]] points to: a full vault path first, then a note title or file name. */

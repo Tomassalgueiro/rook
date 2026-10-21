@@ -3,20 +3,28 @@
   import type { EditorView } from "@codemirror/view";
   import type { Note } from "../types";
   import { noteTitle } from "../notes";
-  import { createEditor, setContent, type LinkOption, type LinkTarget } from "../editor/setup";
+  import {
+    createEditor,
+    restyleLinks,
+    scrollToHeading as scrollViewToHeading,
+    setContent,
+    type LinkProvider,
+    type LinkTarget,
+  } from "../editor/setup";
   import Icon from "./Icon.svelte";
 
   interface Props {
     note: Note;
     onedit: () => void;
     onlink: (link: LinkTarget) => void;
-    /** Suggestions for [[ autocomplete; called each time it opens. */
-    linkOptions: () => LinkOption[];
+    links: LinkProvider;
+    /** Changes whenever the set of notes/files changes, so link styling can refresh. */
+    linkKey: string;
     /** Resolves false if the rename failed, so the title is reset. */
     onrename: (title: string) => Promise<boolean>;
     ondelete: () => void;
   }
-  let { note = $bindable(), onedit, onlink, linkOptions, onrename, ondelete }: Props = $props();
+  let { note = $bindable(), onedit, onlink, links, linkKey, onrename, ondelete }: Props = $props();
 
   let title = $derived(noteTitle(note.path));
   let host = $state<HTMLDivElement>();
@@ -32,7 +40,7 @@
         onedit();
       },
       onlink,
-      linkOptions,
+      links,
     );
     return () => view?.destroy();
   });
@@ -41,6 +49,16 @@
   $effect(() => {
     const text = note.content;
     if (view && text !== view.state.doc.toString()) setContent(view, text);
+  });
+
+  /** Scrolls to a heading in this note; false if it doesn't exist. */
+  export function scrollToHeading(heading: string): boolean {
+    return view ? scrollViewToHeading(view, heading) : false;
+  }
+
+  $effect(() => {
+    void linkKey;
+    if (view) restyleLinks(view);
   });
 
   async function commitTitle() {

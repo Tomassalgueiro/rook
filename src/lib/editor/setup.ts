@@ -1,10 +1,11 @@
 import { Annotation, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { isLineActive, linkAt, livePreview, type LinkTarget } from "./livePreview";
-import { wikilinkCompletion, type LinkOption } from "./completion";
+import { findHeading, isLineActive, linkAt, livePreview, refreshLinks } from "./livePreview";
+import { wikilinkCompletion } from "./completion";
+import type { LinkProvider, LinkTarget } from "./types";
 
-export type { LinkOption, LinkTarget };
+export type { LinkOption, LinkProvider, LinkTarget } from "./types";
 
 /** Marks programmatic content replacement, which isn't a user edit. */
 const external = Annotation.define<boolean>();
@@ -27,7 +28,7 @@ export function createEditor(
   doc: string,
   onchange: (text: string) => void,
   onlink: (link: LinkTarget) => void,
-  linkOptions: () => LinkOption[],
+  links: LinkProvider,
 ): EditorView {
   return new EditorView({
     parent,
@@ -39,8 +40,8 @@ export function createEditor(
         EditorView.lineWrapping,
         EditorView.contentAttributes.of({ spellcheck: "false", "aria-label": "Note content" }),
         chrome,
-        livePreview(),
-        wikilinkCompletion(linkOptions),
+        livePreview(links),
+        wikilinkCompletion(links),
         // Click opens a rendered link; on the line being edited it needs Ctrl/Cmd+click.
         EditorView.domEventHandlers({
           mousedown(e, view) {
@@ -63,6 +64,22 @@ export function createEditor(
       ],
     }),
   });
+}
+
+/** Restyles links, e.g. after a linked note was created or renamed. */
+export function restyleLinks(view: EditorView) {
+  view.dispatch({ effects: refreshLinks.of(null) });
+}
+
+/** Moves the cursor to a heading and scrolls it to the top; false if there's no such heading. */
+export function scrollToHeading(view: EditorView, heading: string): boolean {
+  const pos = findHeading(view.state, heading);
+  if (pos === null) return false;
+  view.dispatch({
+    selection: { anchor: pos },
+    effects: EditorView.scrollIntoView(pos, { y: "start", yMargin: 48 }),
+  });
+  return true;
 }
 
 /** Replaces the whole document (e.g. after reloading from disk) without an undo step or change event. */
