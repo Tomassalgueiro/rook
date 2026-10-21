@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { FolderAction, TreeNode } from "../types";
+  import Icon from "./Icon.svelte";
   import NoteTree from "./NoteTree.svelte";
 
   interface Props {
@@ -7,27 +8,40 @@
     vaultPath: string;
     tree: TreeNode[];
     activePath: string | null;
-    emptyMessage: string;
+    searching: boolean;
     onselect: (path: string) => void;
     onfolderaction: (action: FolderAction, path: string) => void;
     onclosevault: () => void;
   }
-  let { vaultName, vaultPath, tree, activePath, emptyMessage, onselect, onfolderaction, onclosevault }: Props = $props();
+  let { vaultName, vaultPath, tree, activePath, searching, onselect, onfolderaction, onclosevault }: Props =
+    $props();
+
+  let expanded = $state<Record<string, boolean>>({});
 </script>
 
 <aside>
   <header>
-    <strong title={vaultPath}>{vaultName}</strong>
-    <span>
-      <button class="muted" title="New folder" onclick={() => onfolderaction("folder", "")}>⊞</button>
-      <button class="muted" title="Close vault (switch to another)" onclick={onclosevault}>✕</button>
-    </span>
+    <span class="vault" title={vaultPath}><Icon name="vault" size={15} /><strong>{vaultName}</strong></span>
+    <button class="icon" title="New folder (Ctrl+Shift+N)" aria-label="New folder" onclick={() => onfolderaction("folder", "")}>
+      <Icon name="folder-plus" />
+    </button>
+    <button class="icon" title="Close vault" aria-label="Close vault" onclick={onclosevault}>
+      <Icon name="log-out" />
+    </button>
   </header>
   <nav>
     {#if tree.length}
-      <NoteTree nodes={tree} {activePath} {onselect} {onfolderaction} />
+      <NoteTree
+        nodes={tree}
+        {activePath}
+        {expanded}
+        forceOpen={searching}
+        {onselect}
+        ontoggle={(path, open) => (expanded[path] = open)}
+        {onfolderaction}
+      />
     {:else}
-      <p class="muted empty">{emptyMessage}</p>
+      <p class="empty">{searching ? "No matching notes" : "No notes yet"}</p>
     {/if}
   </nav>
 </aside>
@@ -36,34 +50,45 @@
   aside {
     display: flex;
     flex-direction: column;
-    width: var(--sidebar-w);
+    flex: 0 0 var(--sidebar-w);
     min-width: 0;
     background: var(--bg-alt);
-    border-right: 1px solid var(--border);
   }
   header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 2px;
     height: var(--bar-h);
-    padding: 0 4px 0 12px;
-    border-bottom: 1px solid var(--border);
+    padding: 0 6px 0 12px;
   }
-  header span {
+  .vault {
+    flex: 1;
+    min-width: 0;
     display: flex;
-    flex-shrink: 0;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-faint);
   }
   strong {
+    font-weight: 600;
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  header .icon {
+    color: var(--text-faint);
+  }
+  header .icon:hover {
+    color: var(--text);
+  }
   nav {
     flex: 1;
     overflow-y: auto;
-    padding: 4px 0;
+    padding: 4px 6px 12px;
   }
   .empty {
-    padding: 0 12px;
+    padding: 0 8px;
+    color: var(--text-faint);
   }
 </style>

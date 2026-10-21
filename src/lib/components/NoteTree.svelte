@@ -1,58 +1,82 @@
 <script lang="ts">
   import type { FolderAction, TreeNode } from "../types";
+  import Icon, { type IconName } from "./Icon.svelte";
   import NoteTree from "./NoteTree.svelte";
 
   interface Props {
     nodes: TreeNode[];
     activePath: string | null;
+    /** Folders the user opened (true) or closed (false); unset folders follow the default. */
+    expanded: Record<string, boolean>;
+    /** Open every folder, e.g. while searching. */
+    forceOpen: boolean;
     onselect: (path: string) => void;
+    ontoggle: (path: string, open: boolean) => void;
     onfolderaction: (action: FolderAction, path: string) => void;
     depth?: number;
   }
-  let { nodes, activePath, onselect, onfolderaction, depth = 0 }: Props = $props();
+  let { nodes, activePath, expanded, forceOpen, onselect, ontoggle, onfolderaction, depth = 0 }: Props = $props();
 
-  let collapsed = $state<Record<string, boolean>>({});
+  // Folders start closed, except the ones leading to the open note.
+  const isOpen = (path: string) =>
+    forceOpen || (expanded[path] ?? (activePath?.startsWith(`${path}/`) ?? false));
 
-  const actions: [FolderAction, string, string][] = [
-    ["note", "＋", "New note here"],
-    ["folder", "⊞", "New subfolder"],
-    ["rename", "✎", "Rename or move folder"],
-    ["delete", "✕", "Delete folder"],
+  const actions: [FolderAction, IconName, string][] = [
+    ["note", "file-plus", "New note here"],
+    ["folder", "folder-plus", "New subfolder"],
+    ["rename", "pencil", "Rename or move folder"],
+    ["delete", "trash", "Delete folder"],
   ];
 </script>
 
 <ul>
   {#each nodes as node (node.path)}
+    {@const indent = `${8 + depth * 14}px`}
     <li>
       {#if node.kind === "folder"}
-        <div class="folder">
+        {@const open = isOpen(node.path)}
+        <div class="row folder">
           <button
-            class="row"
-            style:padding-left="{8 + depth * 12}px"
-            aria-expanded={!collapsed[node.path]}
-            onclick={() => (collapsed[node.path] = !collapsed[node.path])}
+            class="label"
+            style:padding-left={indent}
+            aria-expanded={open}
+            onclick={() => ontoggle(node.path, !open)}
           >
-            <span class="caret">{collapsed[node.path] ? "▸" : "▾"}</span>{node.name}
+            <span class="chevron" class:open><Icon name="chevron" size={12} /></span>
+            <Icon name={open ? "folder-open" : "folder"} size={15} />
+            <span class="name">{node.name}</span>
           </button>
           <span class="actions">
             {#each actions as [action, icon, label] (action)}
-              <button title={label} aria-label="{label}: {node.name}" onclick={() => onfolderaction(action, node.path)}
-                >{icon}</button
-              >
+              <button class="icon" title={label} aria-label="{label}: {node.name}" onclick={() => onfolderaction(action, node.path)}>
+                <Icon name={icon} size={14} />
+              </button>
             {/each}
           </span>
         </div>
-        {#if !collapsed[node.path]}
-          <NoteTree nodes={node.children} {activePath} {onselect} {onfolderaction} depth={depth + 1} />
+        {#if open}
+          <NoteTree
+            nodes={node.children}
+            {activePath}
+            {expanded}
+            {forceOpen}
+            {onselect}
+            {ontoggle}
+            {onfolderaction}
+            depth={depth + 1}
+          />
         {/if}
       {:else}
         <button
-          class="row note"
+          class="row label note"
           class:active={node.path === activePath}
-          style:padding-left="{8 + depth * 12 + 14}px"
+          style:padding-left={indent}
+          aria-current={node.path === activePath ? "page" : undefined}
           onclick={() => onselect(node.path)}
         >
-          {node.name}
+          <span class="chevron"></span>
+          <Icon name="file" size={15} />
+          <span class="name">{node.name}</span>
         </button>
       {/if}
     </li>
@@ -66,24 +90,50 @@
     padding: 0;
   }
   .row {
-    display: block;
-    width: 100%;
-    text-align: left;
-    border-radius: 0;
-    padding-block: 2px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .folder {
     display: flex;
+    align-items: center;
+    width: 100%;
+    margin: 1px 0;
+    border-radius: var(--radius);
   }
-  .folder:hover {
+  .row:hover {
     background: var(--bg-hover);
   }
-  .folder .row {
+  .label {
     flex: 1;
     min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-block: 3px;
+    padding-right: 8px;
+    text-align: left;
+    color: var(--text-muted);
+    background: none;
+  }
+  .label :global(svg) {
+    color: var(--text-faint);
+  }
+  .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chevron {
+    width: 12px;
+    flex-shrink: 0;
+    color: var(--text-faint);
+    transform-origin: center;
+  }
+  .chevron.open {
+    transform: rotate(90deg);
+  }
+  .note.active {
+    color: var(--text);
+    background: var(--bg-active);
+  }
+  .note.active :global(svg) {
+    color: var(--accent);
   }
   .actions {
     display: none;
@@ -94,23 +144,11 @@
   .folder:focus-within .actions {
     display: flex;
   }
-  .actions button {
-    padding: 0 4px;
-    color: var(--text-muted);
+  .actions .icon {
+    padding: 3px;
+    color: var(--text-faint);
   }
-  .actions button:hover {
+  .actions .icon:hover {
     color: var(--text);
-  }
-  .caret {
-    display: inline-block;
-    width: 14px;
-    color: var(--text-muted);
-  }
-  .note {
-    color: var(--text-muted);
-  }
-  .note.active {
-    color: var(--text);
-    background: var(--bg-active);
   }
 </style>

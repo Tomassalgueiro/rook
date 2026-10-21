@@ -12,6 +12,7 @@
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Dialog from "$lib/components/Dialog.svelte";
   import VaultPicker from "$lib/components/VaultPicker.svelte";
+  import Resizer from "$lib/components/Resizer.svelte";
 
   let vault = $state<Vault | null>(null);
   let activePath = $state<string | null>(null);
@@ -20,6 +21,25 @@
   let backlinksOpen = $state(true);
   let status = $state("");
   let recent = $state<RecentVault[]>([]);
+
+  // Panel widths are a per-machine convenience, so localStorage is enough.
+  const storedWidth = (key: string, fallback: number) => {
+    try {
+      return Number(localStorage.getItem(key)) || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  let sidebarWidth = $state(storedWidth("rook.sidebarWidth", 260));
+  let panelWidth = $state(storedWidth("rook.panelWidth", 240));
+  $effect(() => {
+    try {
+      localStorage.setItem("rook.sidebarWidth", String(sidebarWidth));
+      localStorage.setItem("rook.panelWidth", String(panelWidth));
+    } catch {
+      // Storage unavailable; widths just won't persist.
+    }
+  });
   let searchInput = $state<HTMLInputElement>();
   let dialog: Dialog;
 
@@ -307,7 +327,7 @@
 
 <svelte:window {onkeydown} onfocus={() => refresh().catch(report)} />
 
-<div class="app">
+<div class="app" style:--sidebar-w="{sidebarWidth}px" style:--panel-w="{panelWidth}px">
   <Toolbar
     bind:query
     bind:searchInput
@@ -326,11 +346,12 @@
         vaultPath={vault.path}
         {tree}
         {activePath}
-        emptyMessage={query.trim() ? "No matching notes" : "No notes yet"}
+        searching={query.trim() !== ""}
         onselect={select}
         onfolderaction={folderAction}
         onclosevault={closeVault}
       />
+      <Resizer bind:width={sidebarWidth} direction={1} label="Resize sidebar" />
     {/if}
 
     <main>
@@ -365,6 +386,7 @@
     </main>
 
     {#if vault && backlinksOpen && activeNote}
+      <Resizer bind:width={panelWidth} direction={-1} label="Resize backlinks panel" />
       <BacklinksPanel {links} onselect={select} />
     {/if}
   </div>
@@ -405,11 +427,5 @@
     flex-wrap: wrap;
     justify-content: center;
     gap: 16px;
-  }
-  @media (max-width: 900px) {
-    :global(:root) {
-      --sidebar-w: 200px;
-      --panel-w: 180px;
-    }
   }
 </style>

@@ -1,6 +1,10 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import type { EditorView } from "@codemirror/view";
   import type { Note } from "../types";
   import { noteTitle } from "../notes";
+  import { createEditor, setContent } from "../editor/setup";
+  import Icon from "./Icon.svelte";
 
   interface Props {
     note: Note;
@@ -12,6 +16,23 @@
   let { note = $bindable(), onedit, onrename, ondelete }: Props = $props();
 
   let title = $derived(noteTitle(note.path));
+  let host = $state<HTMLDivElement>();
+  let view: EditorView | undefined;
+
+  onMount(() => {
+    if (!host) return;
+    view = createEditor(host, note.content, (text) => {
+      note.content = text;
+      onedit();
+    });
+    return () => view?.destroy();
+  });
+
+  // Pull in content replaced from outside, e.g. "Reload from disk" or an external edit.
+  $effect(() => {
+    const text = note.content;
+    if (view && text !== view.state.doc.toString()) setContent(view, text);
+  });
 
   async function commitTitle() {
     const next = title.trim();
@@ -21,19 +42,23 @@
 
   function onTitleKey(e: KeyboardEvent & { currentTarget: HTMLInputElement }) {
     if (e.key === "Escape") title = noteTitle(note.path);
-    if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+    if (e.key === "Enter" || e.key === "Escape") {
+      e.preventDefault();
+      e.currentTarget.blur();
+      if (e.key === "Enter") view?.focus();
+    }
   }
 </script>
 
 <section>
   <header>
     <input class="title" bind:value={title} onblur={commitTitle} onkeydown={onTitleKey} aria-label="Note title" />
-    <button class="muted" title="Delete note" onclick={ondelete}>Delete</button>
+    <button class="icon" title="Delete note" aria-label="Delete note" onclick={ondelete}><Icon name="trash" /></button>
   </header>
   {#if note.error}
     <p class="muted">This note can't be edited in Rook: {note.error}</p>
   {:else}
-    <textarea bind:value={note.content} oninput={onedit} spellcheck="false" aria-label="Note content"></textarea>
+    <div class="body" bind:this={host}></div>
   {/if}
 </section>
 
@@ -43,24 +68,24 @@
     display: flex;
     flex-direction: column;
     width: 100%;
-    max-width: 760px;
+    max-width: 720px;
     margin: 0 auto;
-    padding: 24px 32px 0;
-    min-height: 0;
+    padding: 48px 40px 0;
   }
   header {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0 0 12px;
+    margin-bottom: 20px;
   }
   .title {
     flex: 1;
     min-width: 0;
     font: inherit;
-    font-size: 24px;
-    font-weight: 600;
-    line-height: 1.3;
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
     color: inherit;
     background: transparent;
     border: 0;
@@ -69,21 +94,28 @@
   .title:focus-visible {
     outline: none;
   }
-  textarea {
-    flex: 1;
-    resize: none;
-    border: 0;
-    padding: 0 0 24px;
-    font: 15px/1.7 ui-monospace, "SF Mono", Menlo, monospace;
-    color: inherit;
-    background: transparent;
+  header .icon {
+    color: var(--text-faint);
+    opacity: 0;
   }
-  textarea:focus-visible {
-    outline: none;
+  header:hover .icon,
+  header .icon:focus-visible {
+    opacity: 1;
+  }
+  header .icon:hover {
+    color: var(--danger);
+  }
+  .body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .body :global(.cm-editor) {
+    flex: 1;
   }
   @media (max-width: 640px) {
     section {
-      padding: 16px 16px 0;
+      padding: 24px 16px 0;
     }
   }
 </style>

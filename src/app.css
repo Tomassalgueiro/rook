@@ -1,21 +1,29 @@
 :root {
-  --bg: #1e1e1e;
-  --bg-alt: #252526;
-  --bg-hover: #2f2f31;
-  --bg-active: #37373d;
-  --border: #333336;
-  --text: #dcdcdc;
-  --text-muted: #8b8b8f;
-  --accent: #8b7cf6;
-  --radius: 4px;
-  --sidebar-w: 240px;
-  --panel-w: 240px;
-  --bar-h: 36px;
+  --font-ui: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-text: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, Menlo, monospace;
+
+  --bg: #1b1b1d;
+  --bg-alt: #212124;
+  --bg-hover: #2a2a2e;
+  --bg-active: #313136;
+  --bg-code: #26262a;
+  --border: #2e2e33;
+  --text: #e3e3e6;
+  --text-muted: #a3a3ab;
+  --text-faint: #6e6e78;
+  --accent: #9d8cf5;
+  --selection: rgb(157 140 245 / 0.28);
+  --danger: #ef6b6b;
+  --radius: 5px;
+  --bar-h: 38px;
 
   color-scheme: dark;
-  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 13.5px/1.5 var(--font-ui);
+  font-feature-settings: "cv11", "ss01";
   color: var(--text);
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
 }
 
 *,
@@ -45,19 +53,40 @@ button:hover {
   background: var(--bg-hover);
 }
 
+button.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+}
+
 button:focus-visible,
 input:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+[tabindex]:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
 
 kbd {
-  font: 11px ui-monospace, monospace;
-  color: var(--text-muted);
+  font: 10.5px var(--font-mono);
+  color: var(--text-faint);
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 0 4px;
+  white-space: nowrap;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-active);
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
 }
 
 .muted {

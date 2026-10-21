@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Icon from "./Icon.svelte";
+
   interface Props {
     query: string;
     sidebarOpen: boolean;
@@ -22,51 +24,82 @@
 </script>
 
 <header>
-  <button title="Toggle sidebar (Ctrl+\)" aria-pressed={sidebarOpen} onclick={ontogglesidebar}>☰</button>
-  <button title="New note (Ctrl+N)" {disabled} onclick={onnewnote}>＋ New</button>
-  <input
-    type="search"
-    placeholder="Search notes…  Ctrl+K"
-    bind:value={query}
-    bind:this={searchInput}
-    {disabled}
-  />
+  <button class="icon" title="Toggle sidebar (Ctrl+\)" aria-label="Toggle sidebar" aria-pressed={sidebarOpen} onclick={ontogglesidebar}>
+    <Icon name="panel-left" />
+  </button>
+  <button class="icon" title="New note (Ctrl+N)" aria-label="New note" {disabled} onclick={onnewnote}>
+    <Icon name="file-plus" />
+  </button>
+  <label class="search">
+    <Icon name="search" size={14} />
+    <input type="search" placeholder="Search notes" bind:value={query} bind:this={searchInput} {disabled} />
+    <kbd>Ctrl K</kbd>
+  </label>
   <button
-    class="right"
+    class="icon"
     title="Toggle backlinks (Ctrl+Shift+B)"
+    aria-label="Toggle backlinks"
     aria-pressed={backlinksOpen}
-    onclick={ontogglebacklinks}>⇄</button
+    onclick={ontogglebacklinks}
   >
+    <Icon name="panel-right" />
+  </button>
 </header>
 
 <style>
   header {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 2px;
     height: var(--bar-h);
     padding: 0 6px;
-    border-bottom: 1px solid var(--border);
     background: var(--bg-alt);
+    border-bottom: 1px solid var(--border);
   }
-  button[aria-pressed="true"] {
-    color: var(--accent);
+  .icon {
+    color: var(--text-faint);
   }
-  button:disabled {
+  .icon:hover:not(:disabled) {
+    color: var(--text);
+  }
+  .icon[aria-pressed="true"] {
+    color: var(--text-muted);
+  }
+  .icon:disabled {
     opacity: 0.4;
     cursor: default;
   }
-  input {
-    flex: 0 1 280px;
-    min-width: 80px;
-    font: inherit;
-    color: inherit;
+  .search {
+    flex: 0 1 320px;
+    min-width: 100px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 auto;
+    padding: 3px 8px;
+    color: var(--text-faint);
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 2px 8px;
+    border-radius: 6px;
   }
-  .right {
-    margin-left: auto;
+  .search:focus-within {
+    border-color: var(--accent);
+  }
+  input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    color: var(--text);
+    background: none;
+    border: 0;
+    padding: 0;
+  }
+  input:focus-visible {
+    outline: none;
+  }
+  @media (max-width: 640px) {
+    kbd {
+      display: none;
+    }
   }
 </style>
