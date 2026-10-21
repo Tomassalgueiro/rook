@@ -9,6 +9,9 @@ import type { LinkProvider, LinkTarget } from "./types";
 
 const markdown = parser.configure(GFM);
 
+/** Parses Markdown (with GFM) outside an editor. */
+export const parseMarkdown = (text: string) => markdown.parse(text);
+
 /** The parsed document. Notes are small, so a full reparse per change is cheap enough. */
 const syntax = StateField.define<Tree>({
   create: (state) => markdown.parse(state.doc.toString()),

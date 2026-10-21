@@ -21,6 +21,7 @@
   import Dialog from "$lib/components/Dialog.svelte";
   import type { LinkOption, LinkProvider, LinkTarget } from "$lib/editor/setup";
   import { headingsIn } from "$lib/editor/livePreview";
+  import { updateLinksIn } from "$lib/linkUpdate";
   import VaultPicker from "$lib/components/VaultPicker.svelte";
   import Resizer from "$lib/components/Resizer.svelte";
 
@@ -317,30 +318,83 @@
     status = `Link target not found: ${href}`;
   }
 
-  /** Renames or moves a note; false (with the error reported) if it failed. */
-  async function moveNote(from: string, to: string): Promise<boolean> {
+  // ---- Moving (every move also rewrites links; see $lib/linkUpdate) ----
+
+  /** Vault paths before a move, for resolving links as they were written. */
+  const snapshot = (v: Vault) => ({ notesBefore: v.notes.map((n) => n.path), filesBefore: v.files.map((f) => f.path) });
+
+  const withLinks = (message: string, updated: number) =>
+    updated ? `${message} · updated links in ${updated} note${updated === 1 ? "" : "s"}` : message;
+
+  /**
+   * After notes/files moved (`moved`: old -> new path; note objects already carry new paths),
+   * rewrites links that pointed at them and relative links inside moved notes.
+   * Returns how many notes changed.
+   */
+  async function updateLinks(moved: Map<string, string>, before: ReturnType<typeof snapshot>): Promise<number> {
+    if (!vault) return 0;
+    const oldPathOf = new Map([...moved].map(([from, to]) => [to, from]));
+    let updated = 0;
+    for (const note of vault.notes) {
+      if (note.error) continue;
+      const original = note.content;
+      const text = updateLinksIn(original, oldPathOf.get(note.path) ?? note.path, note.path, { moved, ...before });
+      if (text === original) continue;
+      try {
+        const entry = await api.writeNote(note.path, text, note.modified);
+        note.modified = entry.modified;
+        // If the user typed meanwhile, keep their text; their next save wins for this note.
+        if (note.content === original) note.content = text;
+        updated++;
+      } catch (err) {
+        report(err);
+      }
+    }
+    return updated;
+  }
+
+  /** Renames or moves a note; returns how many notes had links updated, or null if it failed. */
+  async function moveNote(from: string, to: string): Promise<number | null> {
     const note = vault?.notes.find((n) => n.path === from);
-    if (!note) return false;
+    if (!vault || !note) return null;
     await flush();
+    const before = snapshot(vault);
     try {
       const entry = await api.renameNote(from, to);
       note.path = entry.path;
       note.modified = entry.modified;
       // The user may have switched notes while the rename was in flight.
       if (activePath === from) activePath = entry.path;
-      return true;
+      return await updateLinks(new Map([[from, entry.path]]), before);
     } catch (err) {
       report(err);
-      return false;
+      return null;
+    }
+  }
+
+  /** Moves a PDF, image or video; same return value as `moveNote`. */
+  async function moveFile(from: string, to: string): Promise<number | null> {
+    if (!vault) return null;
+    await flush();
+    const before = snapshot(vault);
+    try {
+      await api.moveFile(from, to);
+      const updated = await updateLinks(new Map([[from, to]]), before);
+      await refresh();
+      return updated;
+    } catch (err) {
+      report(err);
+      return null;
     }
   }
 
   async function renameActive(title: string): Promise<boolean> {
     if (!activeNote) return false;
     const folder = activeNote.path.slice(0, activeNote.path.lastIndexOf("/") + 1);
-    const ok = await moveNote(activeNote.path, `${folder}${title}.md`);
-    if (ok) status = "Renamed";
-    return ok;
+    const updated = await moveNote(activeNote.path, `${folder}${title}.md`);
+    if (updated === null) return false;
+    status = withLinks("Renamed", updated);
+    return true;
   }
 
   async function deleteActive() {
@@ -375,27 +429,34 @@
     }
   }
 
-  /** Renames or moves a folder; false (with the error reported) if it failed. */
-  async function moveFolder(path: string, to: string): Promise<boolean> {
-    if (!vault) return false;
+  /** Renames or moves a folder; same return value as `moveNote`. */
+  async function moveFolder(path: string, to: string): Promise<number | null> {
+    if (!vault) return null;
     await flush();
+    const before = snapshot(vault);
     try {
       await api.renameFolder(path, to);
       // Remap locally so moved notes keep their loaded content (refresh skips unchanged mtimes).
       const move = (p: string) => (p === path || inFolder(p, path) ? to + p.slice(path.length) : p);
+      const moved = new Map(
+        [...before.notesBefore, ...before.filesBefore].filter((p) => inFolder(p, path)).map((p) => [p, move(p)]),
+      );
       for (const note of vault.notes) note.path = move(note.path);
       if (activePath) activePath = move(activePath);
+      const updated = await updateLinks(moved, before);
       await refresh();
-      return true;
+      return updated;
     } catch (err) {
       report(err);
-      return false;
+      return null;
     }
   }
 
   async function renameFolder(path: string) {
     const to = await dialog.prompt("Rename or move folder (path inside the vault)", path, "Rename");
-    if (to && to !== path && (await moveFolder(path, to))) status = "Folder renamed";
+    if (!to || to === path) return;
+    const updated = await moveFolder(path, to);
+    if (updated !== null) status = withLinks("Folder renamed", updated);
   }
 
   /** Sidebar drag-and-drop: moves a note, file or folder into `folder` ("" = vault root). */
@@ -403,19 +464,9 @@
     const name = path.slice(path.lastIndexOf("/") + 1);
     const to = folder ? `${folder}/${name}` : name;
     if (to === path) return;
-    let ok = false;
-    if (kind === "note") ok = await moveNote(path, to);
-    else if (kind === "folder") ok = await moveFolder(path, to);
-    else {
-      try {
-        await api.moveFile(path, to);
-        await refresh();
-        ok = true;
-      } catch (err) {
-        report(err);
-      }
-    }
-    if (ok) status = `Moved to ${folder || "vault root"}`;
+    const move = kind === "note" ? moveNote : kind === "folder" ? moveFolder : moveFile;
+    const updated = await move(path, to);
+    if (updated !== null) status = withLinks(`Moved to ${folder || "vault root"}`, updated);
   }
 
   async function deleteFolder(path: string) {
