@@ -2,13 +2,39 @@
   import type { Note } from "../types";
   import { noteTitle } from "../notes";
 
-  let { note = $bindable() }: { note: Note } = $props();
+  interface Props {
+    note: Note;
+    onedit: () => void;
+    /** Resolves false if the rename failed, so the title is reset. */
+    onrename: (title: string) => Promise<boolean>;
+    ondelete: () => void;
+  }
+  let { note = $bindable(), onedit, onrename, ondelete }: Props = $props();
+
+  let title = $derived(noteTitle(note.path));
+
+  async function commitTitle() {
+    const next = title.trim();
+    const current = noteTitle(note.path);
+    if (!next || next === current || !(await onrename(next))) title = current;
+  }
+
+  function onTitleKey(e: KeyboardEvent & { currentTarget: HTMLInputElement }) {
+    if (e.key === "Escape") title = noteTitle(note.path);
+    if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+  }
 </script>
 
 <section>
-  <h1>{noteTitle(note.path)}</h1>
-  <!-- Placeholder editor: edits stay in memory until the vault API exists. -->
-  <textarea bind:value={note.content} spellcheck="false" aria-label="Note content"></textarea>
+  <header>
+    <input class="title" bind:value={title} onblur={commitTitle} onkeydown={onTitleKey} aria-label="Note title" />
+    <button class="muted" title="Delete note" onclick={ondelete}>Delete</button>
+  </header>
+  {#if note.error}
+    <p class="muted">This note can't be edited in Rook: {note.error}</p>
+  {:else}
+    <textarea bind:value={note.content} oninput={onedit} spellcheck="false" aria-label="Note content"></textarea>
+  {/if}
 </section>
 
 <style>
@@ -22,10 +48,26 @@
     padding: 24px 32px 0;
     min-height: 0;
   }
-  h1 {
+  header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin: 0 0 12px;
+  }
+  .title {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
     font-size: 24px;
     font-weight: 600;
+    line-height: 1.3;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+  .title:focus-visible {
+    outline: none;
   }
   textarea {
     flex: 1;
