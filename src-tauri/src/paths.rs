@@ -10,12 +10,18 @@ const RESERVED_NAMES: [&str; 22] = [
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
-/// Checks a vault-relative path without touching the filesystem.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Kind {
+    Note,
+    Folder,
+}
+
+/// Checks a vault-relative path without touching the filesystem. Notes must end in `.md`.
 ///
 /// `strict` adds the portability rules (Windows reserved characters and names, trailing
 /// dots/spaces). It applies to names Rook creates; existing files only need the lenient rules
 /// so notes made by other tools stay readable.
-pub fn validate(rel: &str, strict: bool) -> Result<(), VaultError> {
+pub fn validate(rel: &str, kind: Kind, strict: bool) -> Result<(), VaultError> {
     let invalid = |why: &str| {
         Err(VaultError::new(ErrorKind::InvalidPath, format!("Invalid path {rel:?}: {why}")))
     };
@@ -26,7 +32,7 @@ pub fn validate(rel: &str, strict: bool) -> Result<(), VaultError> {
     if rel.starts_with('/') || rel.contains('\\') {
         return invalid("must be relative and use '/' separators");
     }
-    if !rel.to_ascii_lowercase().ends_with(".md") {
+    if kind == Kind::Note && !rel.to_ascii_lowercase().ends_with(".md") {
         return invalid("not a .md file");
     }
     // Belt and braces: the platform must see only plain names (no root, prefix or "..").
@@ -63,10 +69,10 @@ pub fn validate(rel: &str, strict: bool) -> Result<(), VaultError> {
     Ok(())
 }
 
-/// Resolves an existing note. Returns `(path, real)`: the joined path (acts on a symlink itself)
+/// Resolves an existing note or folder. Returns `(path, real)`: the joined path (acts on a symlink itself)
 /// and its canonical target, which must lie inside the canonical `root`.
-pub fn resolve_existing(root: &Path, rel: &str) -> Result<(PathBuf, PathBuf), VaultError> {
-    validate(rel, false)?;
+pub fn resolve_existing(root: &Path, rel: &str, kind: Kind) -> Result<(PathBuf, PathBuf), VaultError> {
+    validate(rel, kind, false)?;
     let path = root.join(rel);
     let real = fs::canonicalize(&path).map_err(|e| VaultError::from_io(e, rel))?;
     if !real.starts_with(root) {
@@ -75,10 +81,10 @@ pub fn resolve_existing(root: &Path, rel: &str) -> Result<(PathBuf, PathBuf), Va
     Ok((path, real))
 }
 
-/// Resolves a path for a note that must not exist yet. Its deepest existing ancestor must lie
+/// Resolves a path for a note or folder that must not exist yet. Its deepest existing ancestor must lie
 /// inside the canonical `root`; missing folders are created later by the caller.
-pub fn resolve_new(root: &Path, rel: &str) -> Result<PathBuf, VaultError> {
-    validate(rel, true)?;
+pub fn resolve_new(root: &Path, rel: &str, kind: Kind) -> Result<PathBuf, VaultError> {
+    validate(rel, kind, true)?;
     let path = root.join(rel);
     if path.symlink_metadata().is_ok() {
         return Err(VaultError::new(ErrorKind::AlreadyExists, format!("{rel} already exists")));
@@ -105,7 +111,7 @@ mod tests {
     #[test]
     fn validate_accepts_normal_paths() {
         for p in ["Note.md", "a/b/Note.MD", "Rook Roadmap.md", "2026-10-21.md", "ação.md"] {
-            assert!(validate(p, true).is_ok(), "{p}");
+            assert!(validate(p, Kind::Note, true).is_ok(), "{p}");
         }
     }
 
@@ -115,7 +121,7 @@ mod tests {
             "", "/etc/x.md", "a\\b.md", "../x.md", "a/../x.md", "a//b.md", "./x.md",
             ".git/x.md", ".hidden.md", "note.txt", "note", "a\0b.md", "a\nb.md",
         ] {
-            let err = validate(p, false).unwrap_err();
+            let err = validate(p, Kind::Note, false).unwrap_err();
             assert_eq!(err.kind, ErrorKind::InvalidPath, "{p:?}");
         }
     }
@@ -124,9 +130,18 @@ mod tests {
     fn strict_rejects_unportable_names() {
         for p in ["a:b.md", "C:/x.md", "what?.md", "dir./x.md", "dir /x.md", "CON.md", "con.md", "nul.txt.md", "LPT1.md"] {
             if !(cfg!(windows) && p.contains(':')) {
-                assert!(validate(p, false).is_ok(), "lenient {p}");
+                assert!(validate(p, Kind::Note, false).is_ok(), "lenient {p}");
             }
-            assert_eq!(validate(p, true).unwrap_err().kind, ErrorKind::InvalidPath, "{p}");
+            assert_eq!(validate(p, Kind::Note, true).unwrap_err().kind, ErrorKind::InvalidPath, "{p}");
+        }
+    }
+
+    #[test]
+    fn folders_skip_md_rule() {
+        assert!(validate("a/b", Kind::Folder, true).is_ok());
+        assert!(validate("a/b", Kind::Note, true).is_err());
+        for p in ["", "../a", ".git", "a/./b", "CON"] {
+            assert_eq!(validate(p, Kind::Folder, true).unwrap_err().kind, ErrorKind::InvalidPath, "{p:?}");
         }
     }
 
@@ -140,10 +155,10 @@ mod tests {
     fn resolve_existing_and_new() {
         let (_dir, root) = vault();
         fs::write(root.join("a.md"), "").unwrap();
-        assert!(resolve_existing(&root, "a.md").is_ok());
-        assert_eq!(resolve_existing(&root, "b.md").unwrap_err().kind, ErrorKind::NotFound);
-        assert!(resolve_new(&root, "x/y/b.md").is_ok());
-        assert_eq!(resolve_new(&root, "a.md").unwrap_err().kind, ErrorKind::AlreadyExists);
+        assert!(resolve_existing(&root, "a.md", Kind::Note).is_ok());
+        assert_eq!(resolve_existing(&root, "b.md", Kind::Note).unwrap_err().kind, ErrorKind::NotFound);
+        assert!(resolve_new(&root, "x/y/b.md", Kind::Note).is_ok());
+        assert_eq!(resolve_new(&root, "a.md", Kind::Note).unwrap_err().kind, ErrorKind::AlreadyExists);
     }
 
     #[cfg(unix)]
@@ -156,12 +171,12 @@ mod tests {
         symlink(outside.join("secret.md"), root.join("link.md")).unwrap();
         symlink(&outside, root.join("out")).unwrap();
 
-        assert_eq!(resolve_existing(&root, "link.md").unwrap_err().kind, ErrorKind::OutsideVault);
-        assert_eq!(resolve_existing(&root, "out/secret.md").unwrap_err().kind, ErrorKind::OutsideVault);
-        assert_eq!(resolve_new(&root, "out/new.md").unwrap_err().kind, ErrorKind::OutsideVault);
+        assert_eq!(resolve_existing(&root, "link.md", Kind::Note).unwrap_err().kind, ErrorKind::OutsideVault);
+        assert_eq!(resolve_existing(&root, "out/secret.md", Kind::Note).unwrap_err().kind, ErrorKind::OutsideVault);
+        assert_eq!(resolve_new(&root, "out/new.md", Kind::Note).unwrap_err().kind, ErrorKind::OutsideVault);
 
         fs::write(root.join("real.md"), "").unwrap();
         symlink(root.join("real.md"), root.join("inside.md")).unwrap();
-        assert!(resolve_existing(&root, "inside.md").is_ok());
+        assert!(resolve_existing(&root, "inside.md", Kind::Note).is_ok());
     }
 }

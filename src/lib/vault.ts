@@ -11,6 +11,12 @@ export interface NoteEntry {
   modified: number;
 }
 
+/** Folders are listed separately so empty ones still show up. */
+export interface VaultListing {
+  notes: NoteEntry[];
+  folders: string[];
+}
+
 export interface NoteContent extends NoteEntry {
   content: string;
 }
@@ -41,7 +47,7 @@ export function errorMessage(e: unknown): string {
 
 /** Opens the native folder picker; resolves to null if the user cancels. */
 export const selectVault = () => invoke<VaultInfo | null>("select_vault");
-export const listNotes = () => invoke<NoteEntry[]>("list_notes");
+export const listVault = () => invoke<VaultListing>("list_vault");
 export const readNote = (path: string) => invoke<NoteContent>("read_note", { path });
 export const createNote = (path: string, content?: string) =>
   invoke<NoteEntry>("create_note", { path, content });
@@ -50,3 +56,7 @@ export const writeNote = (path: string, content: string, expectedModified?: numb
   invoke<NoteEntry>("write_note", { path, content, expectedModified });
 export const renameNote = (from: string, to: string) => invoke<NoteEntry>("rename_note", { from, to });
 export const deleteNote = (path: string) => invoke<void>("delete_note", { path });
+export const createFolder = (path: string) => invoke<void>("create_folder", { path });
+export const renameFolder = (from: string, to: string) => invoke<void>("rename_folder", { from, to });
+/** Permanently deletes the folder and everything in it. */
+export const deleteFolder = (path: string) => invoke<void>("delete_folder", { path });

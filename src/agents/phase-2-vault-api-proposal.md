@@ -175,3 +175,15 @@ Windows, check that a junction pointing outside the vault is rejected.
 2. Conflict detection via `expected_modified` is kept (e.g. a note edited in vim while open).
 3. Reopening the last vault on startup is deferred to a later phase.
 4. Folder operations are the next step after v1.
+
+## Addendum: folder operations (implemented)
+
+- `list_notes` is replaced by `list_vault() -> { notes: NoteEntry[], folders: string[] }`, so
+  empty folders are listed too. Hidden and symlinked folders are still skipped.
+- `create_folder(path)`: creates missing parent folders; fails with `AlreadyExists` if the folder exists.
+- `rename_folder(from, to)`: the same rules as `rename_note` (never overwrites, allows
+  case-only renames). Moving a folder into itself → `InvalidPath`.
+- `delete_folder(path)`: **permanently and recursively** deletes the folder, including non-note
+  files. Never follows a symlink. The UI confirms first and shows the note count.
+- Folder paths get the same validation as notes, minus the `.md` requirement. Passing a note
+  to a folder command (or the reverse) → `NotFound` ("not a folder" / "not a note").

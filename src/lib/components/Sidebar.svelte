@@ -1,27 +1,32 @@
 <script lang="ts">
-  import type { TreeNode } from "../types";
+  import type { FolderAction, TreeNode } from "../types";
   import NoteTree from "./NoteTree.svelte";
 
   interface Props {
     vaultName: string;
     tree: TreeNode[];
     activePath: string | null;
+    emptyMessage: string;
     onselect: (path: string) => void;
+    onfolderaction: (action: FolderAction, path: string) => void;
     onclosevault: () => void;
   }
-  let { vaultName, tree, activePath, onselect, onclosevault }: Props = $props();
+  let { vaultName, tree, activePath, emptyMessage, onselect, onfolderaction, onclosevault }: Props = $props();
 </script>
 
 <aside>
   <header>
     <strong title={vaultName}>{vaultName}</strong>
-    <button class="muted" title="Close vault" onclick={onclosevault}>✕</button>
+    <span>
+      <button class="muted" title="New folder" onclick={() => onfolderaction("folder", "")}>⊞</button>
+      <button class="muted" title="Close vault" onclick={onclosevault}>✕</button>
+    </span>
   </header>
   <nav>
     {#if tree.length}
-      <NoteTree nodes={tree} {activePath} {onselect} />
+      <NoteTree nodes={tree} {activePath} {onselect} {onfolderaction} />
     {:else}
-      <p class="muted empty">No matching notes</p>
+      <p class="muted empty">{emptyMessage}</p>
     {/if}
   </nav>
 </aside>
@@ -42,6 +47,10 @@
     height: var(--bar-h);
     padding: 0 4px 0 12px;
     border-bottom: 1px solid var(--border);
+  }
+  header span {
+    display: flex;
+    flex-shrink: 0;
   }
   strong {
     overflow: hidden;

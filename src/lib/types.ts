@@ -8,7 +8,10 @@ export interface Note extends NoteContent {
 export interface Vault {
   name: string;
   notes: Note[];
+  folders: string[];
 }
+
+export type FolderAction = "note" | "folder" | "rename" | "delete";
 
 export type TreeNode =
   | { kind: "folder"; name: string; path: string; children: TreeNode[] }

@@ -9,12 +9,15 @@ pub fn run() {
         .manage(vault::VaultState::default())
         .invoke_handler(tauri::generate_handler![
             vault::select_vault,
-            vault::list_notes,
+            vault::list_vault,
             vault::read_note,
             vault::create_note,
             vault::write_note,
             vault::rename_note,
             vault::delete_note,
+            vault::create_folder,
+            vault::rename_folder,
+            vault::delete_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

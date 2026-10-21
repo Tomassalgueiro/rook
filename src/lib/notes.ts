@@ -6,24 +6,31 @@ export function noteTitle(path: string): string {
   return file.replace(/\.md$/i, "");
 }
 
-/** Builds a sorted folder/note tree from flat vault-relative paths. */
-export function buildTree(notes: Note[]): TreeNode[] {
+/** Builds a sorted folder/note tree from vault-relative paths; `folders` adds empty ones. */
+export function buildTree(notes: { path: string }[], folders: string[] = []): TreeNode[] {
   const root: TreeNode[] = [];
+  const childrenByFolder = new Map<string, TreeNode[]>([["", root]]);
+
+  const childrenOf = (folder: string): TreeNode[] => {
+    let children = childrenByFolder.get(folder);
+    if (!children) {
+      const cut = folder.lastIndexOf("/");
+      children = [];
+      childrenOf(cut < 0 ? "" : folder.slice(0, cut)).push({
+        kind: "folder",
+        name: folder.slice(cut + 1),
+        path: folder,
+        children,
+      });
+      childrenByFolder.set(folder, children);
+    }
+    return children;
+  };
+
+  for (const folder of folders) childrenOf(folder);
   for (const { path } of notes) {
-    const parts = path.split("/");
-    let level = root;
-    parts.slice(0, -1).forEach((name, i) => {
-      const folderPath = parts.slice(0, i + 1).join("/");
-      let folder = level.find(
-        (n): n is Extract<TreeNode, { kind: "folder" }> => n.kind === "folder" && n.path === folderPath,
-      );
-      if (!folder) {
-        folder = { kind: "folder", name, path: folderPath, children: [] };
-        level.push(folder);
-      }
-      level = folder.children;
-    });
-    level.push({ kind: "note", name: noteTitle(path), path });
+    const cut = path.lastIndexOf("/");
+    childrenOf(cut < 0 ? "" : path.slice(0, cut)).push({ kind: "note", name: noteTitle(path), path });
   }
   sortTree(root);
   return root;

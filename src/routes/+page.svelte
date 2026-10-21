@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Note, Vault } from "$lib/types";
+  import type { FolderAction, Note, Vault } from "$lib/types";
   import { buildTree, backlinks, noteTitle, wordCount } from "$lib/notes";
   import * as api from "$lib/vault";
   import { errorMessage, isVaultError } from "$lib/vault";
@@ -9,7 +9,7 @@
   import BacklinksPanel from "$lib/components/BacklinksPanel.svelte";
   import StatusBar from "$lib/components/StatusBar.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
-  import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+  import Dialog from "$lib/components/Dialog.svelte";
 
   let vault = $state<Vault | null>(null);
   let activePath = $state<string | null>(null);
@@ -18,18 +18,20 @@
   let backlinksOpen = $state(true);
   let status = $state("");
   let searchInput = $state<HTMLInputElement>();
-  let dialog: ConfirmDialog;
+  let dialog: Dialog;
 
   const activeIndex = $derived(vault?.notes.findIndex((n) => n.path === activePath) ?? -1);
   const activeNote = $derived(vault && activeIndex >= 0 ? vault.notes[activeIndex] : null);
   const tree = $derived.by(() => {
     if (!vault) return [];
     const q = query.trim().toLowerCase();
-    return buildTree(q ? vault.notes.filter((n) => n.path.toLowerCase().includes(q)) : vault.notes);
+    if (!q) return buildTree(vault.notes, vault.folders);
+    return buildTree(vault.notes.filter((n) => n.path.toLowerCase().includes(q)));
   });
   const links = $derived(vault && activeNote ? backlinks(vault.notes, activeNote) : []);
 
   const report = (err: unknown) => (status = errorMessage(err));
+  const inFolder = (path: string, folder: string) => path.startsWith(`${folder}/`);
 
   // ---- Saving: debounced, serialized so each write sees the previous write's mtime ----
 
@@ -89,13 +91,15 @@
 
   // ---- Vault ----
 
-  /** Syncs the note list with disk, re-reading only notes whose mtime changed. */
+  /** Syncs notes and folders with disk, re-reading only notes whose mtime changed. */
   async function refresh() {
-    if (!vault) return;
-    const entries = await api.listNotes();
-    const known = new Map(vault.notes.map((n) => [n.path, n]));
-    vault.notes = await Promise.all(
-      entries.map(async (entry): Promise<Note> => {
+    const v = vault;
+    if (!v) return;
+    const listing = await api.listVault();
+    const known = new Map(v.notes.map((n) => [n.path, n]));
+    v.folders = listing.folders;
+    v.notes = await Promise.all(
+      listing.notes.map(async (entry): Promise<Note> => {
         const prev = known.get(entry.path);
         if (prev && (prev.modified === entry.modified || (dirty && entry.path === activePath))) return prev;
         try {
@@ -105,7 +109,7 @@
         }
       }),
     );
-    if (!dirty && activePath && !vault.notes.some((n) => n.path === activePath)) activePath = null;
+    if (!dirty && activePath && !v.notes.some((n) => n.path === activePath)) activePath = null;
   }
 
   async function openVault() {
@@ -113,7 +117,7 @@
     try {
       const info = await api.selectVault();
       if (!info) return;
-      vault = { name: info.name, notes: [] };
+      vault = { name: info.name, notes: [], folders: [] };
       activePath = null;
       query = "";
       status = "Loading…";
@@ -139,11 +143,11 @@
 
   // ---- Note operations ----
 
-  async function newNote() {
+  async function newNote(folder = "") {
     if (!vault) return;
     await flush();
     for (let n = 1; n < 1000; n++) {
-      const path = `Untitled ${n}.md`;
+      const path = `${folder ? `${folder}/` : ""}Untitled ${n}.md`;
       if (vault.notes.some((x) => x.path.toLowerCase() === path.toLowerCase())) continue;
       try {
         const entry = await api.createNote(path);
@@ -196,12 +200,72 @@
     }
   }
 
+  // ---- Folder operations ----
+
+  async function newFolder(parent: string) {
+    const name = await dialog.prompt(parent ? `New folder in "${parent}"` : "New folder", "", "Create");
+    if (!name) return;
+    try {
+      await api.createFolder(parent ? `${parent}/${name}` : name);
+      await refresh();
+      status = "Folder created";
+    } catch (err) {
+      report(err);
+    }
+  }
+
+  async function renameFolder(path: string) {
+    const to = await dialog.prompt("Rename or move folder (path inside the vault)", path, "Rename");
+    if (!to || to === path || !vault) return;
+    await flush();
+    try {
+      await api.renameFolder(path, to);
+      // Remap locally so moved notes keep their loaded content (refresh skips unchanged mtimes).
+      const move = (p: string) => (p === path || inFolder(p, path) ? to + p.slice(path.length) : p);
+      for (const note of vault.notes) note.path = move(note.path);
+      if (activePath) activePath = move(activePath);
+      await refresh();
+      status = "Folder renamed";
+    } catch (err) {
+      report(err);
+    }
+  }
+
+  async function deleteFolder(path: string) {
+    if (!vault) return;
+    const count = vault.notes.filter((n) => inFolder(n.path, path)).length;
+    const question = `Delete folder "${path}" permanently? This removes ${count} note${count === 1 ? "" : "s"} and any other files inside it.`;
+    if (!(await dialog.ask(question, "Delete folder"))) return;
+    const activeInside = activePath !== null && inFolder(activePath, path);
+    if (activeInside) {
+      clearTimeout(saveTimer);
+      dirty = false;
+    }
+    await saving;
+    try {
+      await api.deleteFolder(path);
+      if (activeInside) activePath = null;
+      await refresh();
+      status = "Folder deleted";
+    } catch (err) {
+      report(err);
+    }
+  }
+
+  function folderAction(action: FolderAction, path: string) {
+    if (action === "note") newNote(path);
+    else if (action === "folder") newFolder(path);
+    else if (action === "rename") renameFolder(path);
+    else deleteFolder(path);
+  }
+
   function onkeydown(e: KeyboardEvent) {
     if (!(e.ctrlKey || e.metaKey)) return;
     const key = e.key.toLowerCase();
     if (key === "\\") sidebarOpen = !sidebarOpen;
     else if (key === "b" && e.shiftKey) backlinksOpen = !backlinksOpen;
     else if (key === "n" && !e.shiftKey) newNote();
+    else if (key === "n" && e.shiftKey && vault) newFolder("");
     else if (key === "k") searchInput?.focus();
     else if (key === "s") flush();
     else return;
@@ -220,7 +284,7 @@
     disabled={!vault}
     ontogglesidebar={() => (sidebarOpen = !sidebarOpen)}
     ontogglebacklinks={() => (backlinksOpen = !backlinksOpen)}
-    onnewnote={newNote}
+    onnewnote={() => newNote()}
   />
 
   <div class="body">
@@ -229,7 +293,9 @@
         vaultName={vault.name}
         {tree}
         {activePath}
+        emptyMessage={query.trim() ? "No matching notes" : "No notes yet"}
         onselect={select}
+        onfolderaction={folderAction}
         onclosevault={closeVault}
       />
     {/if}
@@ -254,6 +320,7 @@
           <p>Pick a note from the sidebar.</p>
           <p class="hints">
             <span><kbd>Ctrl</kbd> <kbd>N</kbd> new note</span>
+            <span><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>N</kbd> new folder</span>
             <span><kbd>Ctrl</kbd> <kbd>K</kbd> search</span>
             <span><kbd>Ctrl</kbd> <kbd>\</kbd> sidebar</span>
           </p>
@@ -273,7 +340,7 @@
   />
 </div>
 
-<ConfirmDialog bind:this={dialog} />
+<Dialog bind:this={dialog} />
 
 <svelte:head>
   <title>{activeNote ? `${noteTitle(activeNote.path)} — Rook` : "Rook"}</title>
