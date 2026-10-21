@@ -17,10 +17,10 @@
   footer {
     display: flex;
     gap: 16px;
-    height: 22px;
+    height: 26px;
     padding: 0 12px;
-    font-size: 12px;
-    line-height: 22px;
+    font-size: 15.5px;
+    line-height: 26px;
     color: var(--text-muted);
     background: var(--bg-alt);
     border-top: 1px solid var(--border);
