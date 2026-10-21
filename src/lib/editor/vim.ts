@@ -21,9 +21,43 @@ function load(): Promise<VimModule> {
     vim.Vim.defineEx("write", "w", save);
     vim.Vim.defineEx("wq", "wq", save);
     vim.Vim.defineEx("xit", "x", save);
+    vim.Vim.defineMotion("moveByLines", moveByLines(vim.CodeMirror.Pos));
     return vim;
   });
   return module;
+}
+
+/**
+ * j/k (and +, -, Enter) by logical lines. Same as the stock motion, except it never moves by
+ * screen coordinates: the stock one also does a visual-line move meant for folded text and
+ * jumps wherever that lands, which can misfire (e.g. to the top of the note) with live
+ * preview's hidden syntax. Rook has no folding, so logical lines are all j/k need.
+ * (`any`: the Vim package's motion internals are untyped.)
+ */
+function moveByLines(Pos: VimModule["CodeMirror"]["Pos"]): any {
+  return function (this: any, cm: any, head: any, args: any, state: any) {
+    let ch = head.ch;
+    // After a vertical move, keep the remembered column (Infinity after $ sticks to line ends).
+    const vertical = [this.moveByLines, this.moveByDisplayLines, this.moveByScroll, this.moveToColumn, this.moveToEol];
+    if (vertical.includes(state.lastMotion)) ch = state.lastHPos;
+    else state.lastHPos = ch;
+
+    const repeat = args.repeat + (args.repeatOffset || 0);
+    const first = cm.firstLine();
+    const last = cm.lastLine();
+    const wanted = args.forward ? head.line + repeat : head.line - repeat;
+    // Like Vim: past the first/last line, go to the start/end of that line.
+    if (wanted < first && head.line === first) return new Pos(first, 0);
+    if (wanted > last && head.line === last) return new Pos(last, Infinity);
+    const line = Math.min(last, Math.max(first, wanted));
+
+    if (args.toFirstChar) {
+      ch = cm.getLine(line).search(/\S|$/);
+      state.lastHPos = ch;
+    }
+    state.lastHSPos = cm.charCoords(new Pos(line, ch), "div").left;
+    return new Pos(line, ch);
+  };
 }
 
 const cursor = EditorView.theme({
