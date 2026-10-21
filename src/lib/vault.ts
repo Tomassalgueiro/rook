@@ -3,6 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 
 export interface VaultInfo {
   name: string;
+  /** Absolute root, for display only. */
+  path: string;
+}
+
+export interface RecentVault {
+  name: string;
+  path: string;
+  exists: boolean;
 }
 
 /** `path` is vault-relative with "/" separators; `modified` is ms since the Unix epoch. */
@@ -47,6 +55,16 @@ export function errorMessage(e: unknown): string {
 
 /** Opens the native folder picker; resolves to null if the user cancels. */
 export const selectVault = () => invoke<VaultInfo | null>("select_vault");
+/** Asks for a parent folder, creates `name` inside it and opens it; null if cancelled. */
+export const createVault = (name: string) => invoke<VaultInfo | null>("create_vault", { name });
+/** Only paths from `recentVaults()` are accepted. */
+export const openRecentVault = (path: string) => invoke<VaultInfo>("open_recent_vault", { path });
+/** Reopens the vault open at last quit, if any. */
+export const reopenLastVault = () => invoke<VaultInfo | null>("reopen_last_vault");
+export const recentVaults = () => invoke<RecentVault[]>("recent_vaults");
+export const forgetVault = (path: string) => invoke<void>("forget_vault", { path });
+/** Closes the vault so it isn't reopened on next launch. */
+export const closeVault = () => invoke<void>("close_vault");
 export const listVault = () => invoke<VaultListing>("list_vault");
 export const readNote = (path: string) => invoke<NoteContent>("read_note", { path });
 export const createNote = (path: string, content?: string) =>

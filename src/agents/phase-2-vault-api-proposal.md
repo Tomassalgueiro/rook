@@ -187,3 +187,19 @@ Windows, check that a junction pointing outside the vault is rejected.
   files. Never follows a symlink. The UI confirms first and shows the note count.
 - Folder paths get the same validation as notes, minus the `.md` requirement. Passing a note
   to a folder command (or the reverse) → `NotFound` ("not a folder" / "not a note").
+
+## Addendum: vault management (implemented)
+
+The recent-vaults list is stored in `<app config dir>/vaults.json` as `{ vaults: [...], last_open }`,
+newest first, at most 10. A missing or corrupt file just means the list is empty.
+
+- `select_vault()`: opens the folder picker and adds the vault to the recent list.
+  `VaultInfo` now includes `path` (absolute, for display only).
+- `create_vault(name)`: `name` must be a single strict folder name. Opens the picker to
+  choose the parent folder, creates the folder (never reuses an existing one) and opens it.
+- `open_recent_vault(path)`: only accepts paths already in the recent list, so the webview
+  still can't open an arbitrary folder.
+- `reopen_last_vault()`: called on launch; returns null if nothing was open or the folder is gone.
+- `recent_vaults() -> { name, path, exists }[]`, `forget_vault(path)`.
+- `close_vault()`: closes the vault on the Rust side and clears `last_open`, so a vault closed
+  before quitting isn't reopened on the next launch.

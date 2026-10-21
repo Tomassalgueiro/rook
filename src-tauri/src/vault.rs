@@ -8,10 +8,11 @@ use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::paths::{resolve_existing, resolve_new, Kind};
+use crate::paths::{resolve_existing, resolve_new, validate, Kind};
+use crate::vaults::Recents;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum ErrorKind {
@@ -53,6 +54,15 @@ impl VaultError {
 #[derive(Serialize)]
 pub struct VaultInfo {
     name: String,
+    /// Absolute root, for display only.
+    path: String,
+}
+
+#[derive(Serialize)]
+pub struct RecentVault {
+    name: String,
+    path: String,
+    exists: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -251,18 +261,110 @@ async fn blocking<T: Send + 'static>(
         .map_err(|e| VaultError::new(ErrorKind::Io, e.to_string()))?
 }
 
+// ---- Vault management ----
+
+fn vault_name(root: &Path) -> String {
+    root.file_name().map_or("Vault".into(), |n| n.to_string_lossy().into_owned())
+}
+
+fn recents_file(app: &AppHandle) -> Result<PathBuf, VaultError> {
+    let dir = app.path().app_config_dir().map_err(|e| VaultError::new(ErrorKind::Io, e.to_string()))?;
+    Ok(dir.join("vaults.json"))
+}
+
+fn update_recents(app: &AppHandle, f: impl FnOnce(&mut Recents)) -> Result<(), VaultError> {
+    let file = recents_file(app)?;
+    let mut recents = Recents::load(&file);
+    f(&mut recents);
+    recents.save(&file).map_err(|e| VaultError::new(ErrorKind::Io, format!("Couldn't save recent vaults: {e}")))
+}
+
+/// Makes `dir` the open vault and records it as the most recent one.
+fn open_root(app: &AppHandle, state: &VaultState, dir: &Path) -> Result<VaultInfo, VaultError> {
+    let root = fs::canonicalize(dir).map_err(|e| VaultError::from_io(e, "vault"))?;
+    if !root.is_dir() {
+        return Err(VaultError::new(ErrorKind::NotFound, "The vault is not a folder"));
+    }
+    // Failing to remember the vault shouldn't stop it from opening.
+    let _ = update_recents(app, |r| r.opened(&root));
+    let info = VaultInfo { name: vault_name(&root), path: root.to_string_lossy().into_owned() };
+    *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(root);
+    Ok(info)
+}
+
+async fn pick_folder(app: &AppHandle) -> Result<Option<PathBuf>, VaultError> {
+    let app = app.clone();
+    let picked = blocking(move || Ok(app.dialog().file().blocking_pick_folder())).await?;
+    Ok(picked.and_then(|p| p.into_path().ok()))
+}
+
+/// Opens a native folder picker; None if the user cancelled.
 #[tauri::command]
 pub async fn select_vault(app: AppHandle, state: State<'_, VaultState>) -> Result<Option<VaultInfo>, VaultError> {
-    let picked = blocking(move || Ok(app.dialog().file().blocking_pick_folder())).await?;
-    let Some(dir) = picked.and_then(|p| p.into_path().ok()) else { return Ok(None) };
-    let root = fs::canonicalize(&dir).map_err(|e| VaultError::from_io(e, "vault"))?;
-    if !root.is_dir() {
-        return Err(VaultError::new(ErrorKind::NotFound, "Selected vault is not a folder"));
-    }
-    let name = root.file_name().map_or("Vault".into(), |n| n.to_string_lossy().into_owned());
-    *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(root);
-    Ok(Some(VaultInfo { name }))
+    let Some(dir) = pick_folder(&app).await? else { return Ok(None) };
+    open_root(&app, &state, &dir).map(Some)
 }
+
+/// Creates folder `name` inside a parent chosen with the folder picker, and opens it.
+#[tauri::command]
+pub async fn create_vault(app: AppHandle, state: State<'_, VaultState>, name: String) -> Result<Option<VaultInfo>, VaultError> {
+    validate(&name, Kind::Folder, true)?;
+    if name.contains('/') {
+        return Err(VaultError::new(ErrorKind::InvalidPath, "A vault name can't contain '/'"));
+    }
+    let Some(parent) = pick_folder(&app).await? else { return Ok(None) };
+    let dir = parent.join(&name);
+    fs::create_dir(&dir).map_err(|e| VaultError::from_io(e, &name))?;
+    open_root(&app, &state, &dir).map(Some)
+}
+
+/// Opens a vault from the recent list. Only listed paths are accepted, so the webview
+/// can't open an arbitrary folder.
+#[tauri::command]
+pub async fn open_recent_vault(app: AppHandle, state: State<'_, VaultState>, path: String) -> Result<VaultInfo, VaultError> {
+    let path = PathBuf::from(path);
+    if !Recents::load(&recents_file(&app)?).vaults.contains(&path) {
+        return Err(VaultError::new(ErrorKind::InvalidPath, "Not a recent vault"));
+    }
+    open_root(&app, &state, &path)
+}
+
+/// Reopens the vault that was open when the app last quit, if it still exists.
+#[tauri::command]
+pub async fn reopen_last_vault(app: AppHandle, state: State<'_, VaultState>) -> Result<Option<VaultInfo>, VaultError> {
+    match Recents::load(&recents_file(&app)?).last_open {
+        Some(root) if root.is_dir() => open_root(&app, &state, &root).map(Some),
+        _ => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub async fn recent_vaults(app: AppHandle) -> Result<Vec<RecentVault>, VaultError> {
+    let recents = Recents::load(&recents_file(&app)?);
+    Ok(recents
+        .vaults
+        .iter()
+        .map(|root| RecentVault {
+            name: vault_name(root),
+            path: root.to_string_lossy().into_owned(),
+            exists: root.is_dir(),
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn forget_vault(app: AppHandle, path: String) -> Result<(), VaultError> {
+    update_recents(&app, |r| r.forget(Path::new(&path)))
+}
+
+/// Closes the vault; it won't be reopened on next launch.
+#[tauri::command]
+pub async fn close_vault(app: AppHandle, state: State<'_, VaultState>) -> Result<(), VaultError> {
+    *state.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    update_recents(&app, |r| r.last_open = None)
+}
+
+// ---- Note and folder commands ----
 
 #[tauri::command]
 pub async fn list_vault(state: State<'_, VaultState>) -> Result<VaultListing, VaultError> {

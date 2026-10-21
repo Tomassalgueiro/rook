@@ -1,5 +1,6 @@
 mod paths;
 mod vault;
+mod vaults;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -9,6 +10,12 @@ pub fn run() {
         .manage(vault::VaultState::default())
         .invoke_handler(tauri::generate_handler![
             vault::select_vault,
+            vault::create_vault,
+            vault::open_recent_vault,
+            vault::reopen_last_vault,
+            vault::recent_vaults,
+            vault::forget_vault,
+            vault::close_vault,
             vault::list_vault,
             vault::read_note,
             vault::create_note,

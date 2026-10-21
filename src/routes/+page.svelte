@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { FolderAction, Note, Vault } from "$lib/types";
   import { buildTree, backlinks, noteTitle, wordCount } from "$lib/notes";
   import * as api from "$lib/vault";
-  import { errorMessage, isVaultError } from "$lib/vault";
+  import { errorMessage, isVaultError, type RecentVault, type VaultInfo } from "$lib/vault";
   import Toolbar from "$lib/components/Toolbar.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import Editor from "$lib/components/Editor.svelte";
@@ -10,6 +11,7 @@
   import StatusBar from "$lib/components/StatusBar.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Dialog from "$lib/components/Dialog.svelte";
+  import VaultPicker from "$lib/components/VaultPicker.svelte";
 
   let vault = $state<Vault | null>(null);
   let activePath = $state<string | null>(null);
@@ -17,6 +19,7 @@
   let sidebarOpen = $state(true);
   let backlinksOpen = $state(true);
   let status = $state("");
+  let recent = $state<RecentVault[]>([]);
   let searchInput = $state<HTMLInputElement>();
   let dialog: Dialog;
 
@@ -112,12 +115,13 @@
     if (!dirty && activePath && !v.notes.some((n) => n.path === activePath)) activePath = null;
   }
 
-  async function openVault() {
+  /** Runs `open` (picker, recent, etc.) and loads the vault it returns; keeps the current one on cancel. */
+  async function load(open: () => Promise<VaultInfo | null>) {
     await flush();
     try {
-      const info = await api.selectVault();
+      const info = await open();
       if (!info) return;
-      vault = { name: info.name, notes: [], folders: [] };
+      vault = { name: info.name, path: info.path, notes: [], folders: [] };
       activePath = null;
       query = "";
       status = "Loading…";
@@ -125,16 +129,43 @@
       status = "";
     } catch (err) {
       report(err);
+      loadRecent();
     }
+  }
+
+  const loadRecent = () =>
+    api
+      .recentVaults()
+      .then((r) => (recent = r))
+      .catch(report);
+
+  const openVault = () => load(api.selectVault);
+  const openRecent = (path: string) => load(() => api.openRecentVault(path));
+
+  async function createVault() {
+    const name = await dialog.prompt("Name of the new vault", "", "Choose location…");
+    if (name) await load(() => api.createVault(name));
+  }
+
+  async function forgetRecent(path: string) {
+    await api.forgetVault(path).catch(report);
+    await loadRecent();
   }
 
   async function closeVault() {
     await flush();
+    await api.closeVault().catch(report);
     vault = null;
     activePath = null;
     query = "";
     status = "";
+    await loadRecent();
   }
+
+  onMount(async () => {
+    await load(api.reopenLastVault);
+    if (!vault) await loadRecent();
+  });
 
   async function select(path: string) {
     await flush();
@@ -268,6 +299,7 @@
     else if (key === "n" && e.shiftKey && vault) newFolder("");
     else if (key === "k") searchInput?.focus();
     else if (key === "s") flush();
+    else if (key === "o") openVault();
     else return;
     e.preventDefault();
   }
@@ -291,6 +323,7 @@
     {#if vault && sidebarOpen}
       <Sidebar
         vaultName={vault.name}
+        vaultPath={vault.path}
         {tree}
         {activePath}
         emptyMessage={query.trim() ? "No matching notes" : "No notes yet"}
@@ -302,10 +335,13 @@
 
     <main>
       {#if !vault}
-        <EmptyState title="No vault open">
-          <p>A vault is a folder of Markdown notes.</p>
-          <button class="primary" onclick={openVault}>Open folder…</button>
-        </EmptyState>
+        <VaultPicker
+          {recent}
+          onopen={openVault}
+          oncreate={createVault}
+          onopenrecent={openRecent}
+          onforget={forgetRecent}
+        />
       {:else if activeNote}
         {#key activePath}
           <Editor
@@ -363,11 +399,6 @@
     flex-direction: column;
     min-width: 0;
     overflow-y: auto;
-  }
-  .primary {
-    background: var(--accent);
-    color: #fff;
-    padding: 6px 14px;
   }
   .hints {
     display: flex;

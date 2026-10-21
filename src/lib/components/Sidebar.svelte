@@ -4,6 +4,7 @@
 
   interface Props {
     vaultName: string;
+    vaultPath: string;
     tree: TreeNode[];
     activePath: string | null;
     emptyMessage: string;
@@ -11,15 +12,15 @@
     onfolderaction: (action: FolderAction, path: string) => void;
     onclosevault: () => void;
   }
-  let { vaultName, tree, activePath, emptyMessage, onselect, onfolderaction, onclosevault }: Props = $props();
+  let { vaultName, vaultPath, tree, activePath, emptyMessage, onselect, onfolderaction, onclosevault }: Props = $props();
 </script>
 
 <aside>
   <header>
-    <strong title={vaultName}>{vaultName}</strong>
+    <strong title={vaultPath}>{vaultName}</strong>
     <span>
       <button class="muted" title="New folder" onclick={() => onfolderaction("folder", "")}>⊞</button>
-      <button class="muted" title="Close vault" onclick={onclosevault}>✕</button>
+      <button class="muted" title="Close vault (switch to another)" onclick={onclosevault}>✕</button>
     </span>
   </header>
   <nav>

@@ -7,6 +7,7 @@ export interface Note extends NoteContent {
 
 export interface Vault {
   name: string;
+  path: string;
   notes: Note[];
   folders: string[];
 }
