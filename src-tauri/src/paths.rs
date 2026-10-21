@@ -14,9 +14,23 @@ const RESERVED_NAMES: [&str; 22] = [
 pub enum Kind {
     Note,
     Folder,
+    /// A non-note file shown in the sidebar (see `file_type`).
+    File,
 }
 
-/// Checks a vault-relative path without touching the filesystem. Notes must end in `.md`.
+/// Non-note files Rook lists and can open, by extension: "pdf", "image" or "video".
+pub fn file_type(name: &str) -> Option<&'static str> {
+    let (_, ext) = name.rsplit_once('.')?;
+    match ext.to_ascii_lowercase().as_str() {
+        "pdf" => Some("pdf"),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif" => Some("image"),
+        "mp4" | "webm" | "mov" | "mkv" | "m4v" | "ogv" => Some("video"),
+        _ => None,
+    }
+}
+
+/// Checks a vault-relative path without touching the filesystem. Notes must end in `.md`,
+/// files must have a supported extension.
 ///
 /// `strict` adds the portability rules (Windows reserved characters and names, trailing
 /// dots/spaces). It applies to names Rook creates; existing files only need the lenient rules
@@ -34,6 +48,9 @@ pub fn validate(rel: &str, kind: Kind, strict: bool) -> Result<(), VaultError> {
     }
     if kind == Kind::Note && !rel.to_ascii_lowercase().ends_with(".md") {
         return invalid("not a .md file");
+    }
+    if kind == Kind::File && file_type(rel).is_none() {
+        return invalid("unsupported file type");
     }
     // Belt and braces: the platform must see only plain names (no root, prefix or "..").
     if !Path::new(rel).components().all(|c| matches!(c, Component::Normal(_))) {
@@ -143,6 +160,17 @@ mod tests {
         for p in ["", "../a", ".git", "a/./b", "CON"] {
             assert_eq!(validate(p, Kind::Folder, true).unwrap_err().kind, ErrorKind::InvalidPath, "{p:?}");
         }
+    }
+
+    #[test]
+    fn file_types() {
+        assert_eq!(file_type("a/Scan.PDF"), Some("pdf"));
+        assert_eq!(file_type("photo.jpeg"), Some("image"));
+        assert_eq!(file_type("clip.webm"), Some("video"));
+        assert_eq!(file_type("run.sh"), None);
+        assert_eq!(file_type("noext"), None);
+        assert!(validate("a/b.png", Kind::File, true).is_ok());
+        assert_eq!(validate("a/b.exe", Kind::File, false).unwrap_err().kind, ErrorKind::InvalidPath);
     }
 
     fn vault() -> (tempfile::TempDir, PathBuf) {

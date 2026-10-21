@@ -48,8 +48,9 @@
   const tree = $derived.by(() => {
     if (!vault) return [];
     const q = query.trim().toLowerCase();
-    if (!q) return buildTree(vault.notes, vault.folders);
-    return buildTree(vault.notes.filter((n) => n.path.toLowerCase().includes(q)));
+    if (!q) return buildTree(vault.notes, vault.folders, vault.files);
+    const match = (x: { path: string }) => x.path.toLowerCase().includes(q);
+    return buildTree(vault.notes.filter(match), [], vault.files.filter(match));
   });
   const links = $derived(vault && activeNote ? backlinks(vault.notes, activeNote) : []);
 
@@ -121,6 +122,7 @@
     const listing = await api.listVault();
     const known = new Map(v.notes.map((n) => [n.path, n]));
     v.folders = listing.folders;
+    v.files = listing.files;
     v.notes = await Promise.all(
       listing.notes.map(async (entry): Promise<Note> => {
         const prev = known.get(entry.path);
@@ -141,7 +143,7 @@
     try {
       const info = await open();
       if (!info) return;
-      vault = { name: info.name, path: info.path, notes: [], folders: [] };
+      vault = { name: info.name, path: info.path, notes: [], files: [], folders: [] };
       activePath = null;
       query = "";
       status = "Loading…";
@@ -336,7 +338,6 @@
     disabled={!vault}
     ontogglesidebar={() => (sidebarOpen = !sidebarOpen)}
     ontogglebacklinks={() => (backlinksOpen = !backlinksOpen)}
-    onnewnote={() => newNote()}
   />
 
   <div class="body">
@@ -348,6 +349,8 @@
         {activePath}
         searching={query.trim() !== ""}
         onselect={select}
+        onopenfile={(path) => api.openFile(path).catch(report)}
+        onnewnote={() => newNote()}
         onfolderaction={folderAction}
         onclosevault={closeVault}
       />

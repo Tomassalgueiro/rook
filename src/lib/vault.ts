@@ -19,9 +19,18 @@ export interface NoteEntry {
   modified: number;
 }
 
+export type FileKind = "pdf" | "image" | "video";
+
+/** A non-note file shown in the sidebar. */
+export interface FileEntry {
+  path: string;
+  kind: FileKind;
+}
+
 /** Folders are listed separately so empty ones still show up. */
 export interface VaultListing {
   notes: NoteEntry[];
+  files: FileEntry[];
   folders: string[];
 }
 
@@ -74,6 +83,8 @@ export const writeNote = (path: string, content: string, expectedModified?: numb
   invoke<NoteEntry>("write_note", { path, content, expectedModified });
 export const renameNote = (from: string, to: string) => invoke<NoteEntry>("rename_note", { from, to });
 export const deleteNote = (path: string) => invoke<void>("delete_note", { path });
+/** Opens a PDF, image or video with the system's default app. */
+export const openFile = (path: string) => invoke<void>("open_file", { path });
 export const createFolder = (path: string) => invoke<void>("create_folder", { path });
 export const renameFolder = (from: string, to: string) => invoke<void>("rename_folder", { from, to });
 /** Permanently deletes the folder and everything in it. */

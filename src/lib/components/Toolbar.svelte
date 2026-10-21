@@ -8,7 +8,6 @@
     disabled: boolean;
     ontogglesidebar: () => void;
     ontogglebacklinks: () => void;
-    onnewnote: () => void;
     searchInput?: HTMLInputElement;
   }
   let {
@@ -18,7 +17,6 @@
     disabled,
     ontogglesidebar,
     ontogglebacklinks,
-    onnewnote,
     searchInput = $bindable(),
   }: Props = $props();
 </script>
@@ -26,9 +24,6 @@
 <header>
   <button class="icon" title="Toggle sidebar (Ctrl+\)" aria-label="Toggle sidebar" aria-pressed={sidebarOpen} onclick={ontogglesidebar}>
     <Icon name="panel-left" />
-  </button>
-  <button class="icon" title="New note (Ctrl+N)" aria-label="New note" {disabled} onclick={onnewnote}>
-    <Icon name="file-plus" />
   </button>
   <label class="search">
     <Icon name="search" size={14} />

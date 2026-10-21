@@ -203,3 +203,12 @@ newest first, at most 10. A missing or corrupt file just means the list is empty
 - `recent_vaults() -> { name, path, exists }[]`, `forget_vault(path)`.
 - `close_vault()`: closes the vault on the Rust side and clears `last_open`, so a vault closed
   before quitting isn't reopened on the next launch.
+
+## Addendum: non-note files (implemented)
+
+- `list_vault` also returns `files: { path, kind }[]` for supported non-note files. `kind` is
+  `"pdf"`, `"image"` (png, jpg, jpeg, gif, webp, svg, bmp, avif) or `"video"` (mp4, webm, mov,
+  mkv, m4v, ogv). Other file types are still not listed.
+- `open_file(path)`: opens the file with the OS default app, from Rust (no opener permission is
+  given to the webview). Only supported extensions are accepted, so it can't launch executables.
+  The usual vault containment checks apply.

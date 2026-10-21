@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { FolderAction, TreeNode } from "../types";
+  import type { FileKind } from "../vault";
   import Icon, { type IconName } from "./Icon.svelte";
   import NoteTree from "./NoteTree.svelte";
 
@@ -11,11 +12,15 @@
     /** Open every folder, e.g. while searching. */
     forceOpen: boolean;
     onselect: (path: string) => void;
+    onopenfile: (path: string) => void;
     ontoggle: (path: string, open: boolean) => void;
     onfolderaction: (action: FolderAction, path: string) => void;
     depth?: number;
   }
-  let { nodes, activePath, expanded, forceOpen, onselect, ontoggle, onfolderaction, depth = 0 }: Props = $props();
+  let { nodes, activePath, expanded, forceOpen, onselect, onopenfile, ontoggle, onfolderaction, depth = 0 }: Props =
+    $props();
+
+  const fileIcons: Record<FileKind, IconName> = { pdf: "file-pdf", image: "image", video: "film" };
 
   // Folders start closed, except the ones leading to the open note.
   const isOpen = (path: string) =>
@@ -61,11 +66,24 @@
             {expanded}
             {forceOpen}
             {onselect}
+            {onopenfile}
             {ontoggle}
             {onfolderaction}
             depth={depth + 1}
           />
         {/if}
+      {:else if node.kind === "file"}
+        <button
+          class="row label file {node.type}"
+          style:padding-left={indent}
+          title="Open {node.name}.{node.ext} in the default app"
+          onclick={() => onopenfile(node.path)}
+        >
+          <span class="chevron"></span>
+          <Icon name={fileIcons[node.type]} size={15} />
+          <span class="name">{node.name}</span>
+          <span class="ext">{node.ext}</span>
+        </button>
       {:else}
         <button
           class="row label note"
@@ -127,6 +145,26 @@
   }
   .chevron.open {
     transform: rotate(90deg);
+  }
+  .ext {
+    margin-left: auto;
+    padding: 0 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+  }
+  .file.pdf :global(svg) {
+    color: var(--file-pdf);
+  }
+  .file.image :global(svg) {
+    color: var(--file-image);
+  }
+  .file.video :global(svg) {
+    color: var(--file-video);
   }
   .note.active {
     color: var(--text);

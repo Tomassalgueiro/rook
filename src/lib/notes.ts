@@ -1,4 +1,5 @@
 import type { Note, TreeNode } from "./types";
+import type { FileEntry } from "./vault";
 
 /** "projects/rook.md" -> "rook" */
 export function noteTitle(path: string): string {
@@ -6,8 +7,8 @@ export function noteTitle(path: string): string {
   return file.replace(/\.md$/i, "");
 }
 
-/** Builds a sorted folder/note tree from vault-relative paths; `folders` adds empty ones. */
-export function buildTree(notes: { path: string }[], folders: string[] = []): TreeNode[] {
+/** Builds a sorted folder/note/file tree from vault-relative paths; `folders` adds empty ones. */
+export function buildTree(notes: { path: string }[], folders: string[] = [], files: FileEntry[] = []): TreeNode[] {
   const root: TreeNode[] = [];
   const childrenByFolder = new Map<string, TreeNode[]>([["", root]]);
 
@@ -32,14 +33,26 @@ export function buildTree(notes: { path: string }[], folders: string[] = []): Tr
     const cut = path.lastIndexOf("/");
     childrenOf(cut < 0 ? "" : path.slice(0, cut)).push({ kind: "note", name: noteTitle(path), path });
   }
+  for (const { path, kind } of files) {
+    const cut = path.lastIndexOf("/");
+    const file = path.slice(cut + 1);
+    const dot = file.lastIndexOf(".");
+    childrenOf(cut < 0 ? "" : path.slice(0, cut)).push({
+      kind: "file",
+      name: file.slice(0, dot),
+      path,
+      type: kind,
+      ext: file.slice(dot + 1).toLowerCase(),
+    });
+  }
   sortTree(root);
   return root;
 }
 
 function sortTree(nodes: TreeNode[]) {
-  nodes.sort((a, b) =>
-    a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "folder" ? -1 : 1,
-  );
+  // Folders first, then notes and files mixed by name.
+  const rank = (n: TreeNode) => (n.kind === "folder" ? 0 : 1);
+  nodes.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
   for (const n of nodes) if (n.kind === "folder") sortTree(n.children);
 }
 

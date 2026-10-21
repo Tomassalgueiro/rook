@@ -10,11 +10,23 @@
     activePath: string | null;
     searching: boolean;
     onselect: (path: string) => void;
+    onopenfile: (path: string) => void;
+    onnewnote: () => void;
     onfolderaction: (action: FolderAction, path: string) => void;
     onclosevault: () => void;
   }
-  let { vaultName, vaultPath, tree, activePath, searching, onselect, onfolderaction, onclosevault }: Props =
-    $props();
+  let {
+    vaultName,
+    vaultPath,
+    tree,
+    activePath,
+    searching,
+    onselect,
+    onopenfile,
+    onnewnote,
+    onfolderaction,
+    onclosevault,
+  }: Props = $props();
 
   let expanded = $state<Record<string, boolean>>({});
 </script>
@@ -22,6 +34,9 @@
 <aside>
   <header>
     <span class="vault" title={vaultPath}><Icon name="vault" size={15} /><strong>{vaultName}</strong></span>
+    <button class="icon" title="New note (Ctrl+N)" aria-label="New note" onclick={onnewnote}>
+      <Icon name="file-plus" />
+    </button>
     <button class="icon" title="New folder (Ctrl+Shift+N)" aria-label="New folder" onclick={() => onfolderaction("folder", "")}>
       <Icon name="folder-plus" />
     </button>
@@ -37,6 +52,7 @@
         {expanded}
         forceOpen={searching}
         {onselect}
+        {onopenfile}
         ontoggle={(path, open) => (expanded[path] = open)}
         {onfolderaction}
       />

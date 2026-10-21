@@ -10,8 +10,9 @@ use std::time::UNIX_EPOCH;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
 
-use crate::paths::{resolve_existing, resolve_new, validate, Kind};
+use crate::paths::{file_type, resolve_existing, resolve_new, validate, Kind};
 use crate::vaults::Recents;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -71,10 +72,19 @@ pub struct NoteEntry {
     modified: u64,
 }
 
+/// A PDF, image or video in the vault.
+#[derive(Debug, Serialize)]
+pub struct FileEntry {
+    path: String,
+    /// "pdf", "image" or "video".
+    kind: &'static str,
+}
+
 /// Folders are listed separately so empty ones still show up.
 #[derive(Debug, Serialize)]
 pub struct VaultListing {
     notes: Vec<NoteEntry>,
+    files: Vec<FileEntry>,
     folders: Vec<String>,
 }
 
@@ -109,7 +119,11 @@ fn entry(path: &Path, rel: &str) -> Result<NoteEntry, VaultError> {
 }
 
 fn wrong_kind(rel: &str, kind: Kind) -> VaultError {
-    let what = if kind == Kind::Note { "note" } else { "folder" };
+    let what = match kind {
+        Kind::Note => "note",
+        Kind::Folder => "folder",
+        Kind::File => "supported file",
+    };
     VaultError::new(ErrorKind::NotFound, format!("{rel}: not a {what}"))
 }
 
@@ -125,22 +139,25 @@ fn list(root: &Path) -> Result<VaultListing, VaultError> {
             }
             let rel = format!("{prefix}{name}");
             // file_type() does not follow symlinks, so symlinks are skipped entirely.
-            let file_type = item.file_type()?;
-            if file_type.is_dir() {
+            let entry_type = item.file_type()?;
+            if entry_type.is_dir() {
                 // An unreadable subfolder shouldn't hide the rest of the vault.
                 let _ = walk(&item.path(), &format!("{rel}/"), out);
                 out.folders.push(rel);
-            } else if file_type.is_file() && name.to_ascii_lowercase().ends_with(".md") {
+            } else if entry_type.is_file() && name.to_ascii_lowercase().ends_with(".md") {
                 let modified = item.metadata().map_or(0, |m| modified_ms(&m));
                 out.notes.push(NoteEntry { path: rel, modified });
+            } else if let Some(kind) = file_type(&name).filter(|_| entry_type.is_file()) {
+                out.files.push(FileEntry { path: rel, kind });
             }
         }
         Ok(())
     }
 
-    let mut listing = VaultListing { notes: Vec::new(), folders: Vec::new() };
+    let mut listing = VaultListing { notes: Vec::new(), files: Vec::new(), folders: Vec::new() };
     walk(root, "", &mut listing).map_err(|e| VaultError::from_io(e, "vault"))?;
     listing.notes.sort_by(|a, b| a.path.cmp(&b.path));
+    listing.files.sort_by(|a, b| a.path.cmp(&b.path));
     listing.folders.sort();
     Ok(listing)
 }
@@ -415,6 +432,20 @@ pub async fn delete_note(state: State<'_, VaultState>, path: String) -> Result<(
     blocking(move || delete(&root, &path, Kind::Note)).await
 }
 
+/// Opens a PDF, image or video with the system's default app. Only supported types are
+/// accepted, so this can never launch an executable.
+#[tauri::command]
+pub async fn open_file(app: AppHandle, state: State<'_, VaultState>, path: String) -> Result<(), VaultError> {
+    let root = state.root()?;
+    let (_, real) = resolve_existing(&root, &path, Kind::File)?;
+    if !real.is_file() {
+        return Err(wrong_kind(&path, Kind::File));
+    }
+    app.opener()
+        .open_path(real.to_string_lossy(), None::<&str>)
+        .map_err(|e| VaultError::new(ErrorKind::Io, format!("{path}: couldn't open ({e})")))
+}
+
 #[tauri::command]
 pub async fn create_folder(state: State<'_, VaultState>, path: String) -> Result<(), VaultError> {
     let root = state.root()?;
@@ -498,6 +529,8 @@ mod tests {
         fs::create_dir(root.join(".git")).unwrap();
         fs::write(root.join(".git/x.md"), "").unwrap();
         fs::write(root.join("image.png"), "").unwrap();
+        fs::write(root.join("dir/doc.pdf"), "").unwrap();
+        fs::write(root.join("script.sh"), "").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(root.join("dir"), root.join("linked")).unwrap();
 
@@ -507,6 +540,8 @@ mod tests {
         let paths: Vec<_> = listing.notes.into_iter().map(|n| n.path).collect();
         assert_eq!(paths, ["b.md", "dir/a.md"]);
         assert_eq!(listing.folders, ["dir", "empty"]);
+        let files: Vec<_> = listing.files.iter().map(|f| (f.path.as_str(), f.kind)).collect();
+        assert_eq!(files, [("dir/doc.pdf", "pdf"), ("image.png", "image")]);
     }
 
     #[test]
