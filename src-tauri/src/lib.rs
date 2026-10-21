@@ -23,6 +23,7 @@ pub fn run() {
             vault::rename_note,
             vault::delete_note,
             vault::open_file,
+            vault::move_file,
             vault::open_url,
             vault::create_folder,
             vault::rename_folder,

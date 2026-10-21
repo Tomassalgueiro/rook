@@ -11,14 +11,26 @@
     expanded: Record<string, boolean>;
     /** Open every folder, e.g. while searching. */
     forceOpen: boolean;
+    /** Folder highlighted as the current drop target while dragging. */
+    dropTarget: string | null;
     onselect: (path: string) => void;
     onopenfile: (path: string) => void;
     ontoggle: (path: string, open: boolean) => void;
     onfolderaction: (action: FolderAction, path: string) => void;
     depth?: number;
   }
-  let { nodes, activePath, expanded, forceOpen, onselect, onopenfile, ontoggle, onfolderaction, depth = 0 }: Props =
-    $props();
+  let {
+    nodes,
+    activePath,
+    expanded,
+    forceOpen,
+    dropTarget,
+    onselect,
+    onopenfile,
+    ontoggle,
+    onfolderaction,
+    depth = 0,
+  }: Props = $props();
 
   const fileIcons: Record<FileKind, IconName> = { pdf: "file-pdf", image: "image", video: "film" };
 
@@ -40,7 +52,13 @@
     <li>
       {#if node.kind === "folder"}
         {@const open = isOpen(node.path)}
-        <div class="row folder">
+        <div
+          class="row folder"
+          class:drop={dropTarget === node.path}
+          data-drag-path={node.path}
+          data-drag-kind="folder"
+          data-drag-name={node.name}
+        >
           <button
             class="label"
             style:padding-left={indent}
@@ -65,6 +83,7 @@
             {activePath}
             {expanded}
             {forceOpen}
+            {dropTarget}
             {onselect}
             {onopenfile}
             {ontoggle}
@@ -76,6 +95,9 @@
         <button
           class="row label file {node.type}"
           style:padding-left={indent}
+          data-drag-path={node.path}
+          data-drag-kind="file"
+          data-drag-name="{node.name}.{node.ext}"
           title="Open {node.name}.{node.ext} in the default app"
           onclick={() => onopenfile(node.path)}
         >
@@ -89,6 +111,9 @@
           class="row label note"
           class:active={node.path === activePath}
           style:padding-left={indent}
+          data-drag-path={node.path}
+          data-drag-kind="note"
+          data-drag-name={node.name}
           aria-current={node.path === activePath ? "page" : undefined}
           onclick={() => onselect(node.path)}
         >
@@ -116,6 +141,10 @@
   }
   .row:hover {
     background: var(--bg-hover);
+  }
+  .row.drop {
+    background: var(--bg-active);
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
   .label {
     flex: 1;

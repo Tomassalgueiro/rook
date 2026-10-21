@@ -85,6 +85,8 @@ export const renameNote = (from: string, to: string) => invoke<NoteEntry>("renam
 export const deleteNote = (path: string) => invoke<void>("delete_note", { path });
 /** Opens a PDF, image or video with the system's default app. */
 export const openFile = (path: string) => invoke<void>("open_file", { path });
+/** Moves or renames a PDF, image or video; never overwrites. */
+export const moveFile = (from: string, to: string) => invoke<void>("move_file", { from, to });
 /** Opens an http(s) or mailto link in the system's default app. */
 export const openUrl = (url: string) => invoke<void>("open_url", { url });
 export const createFolder = (path: string) => invoke<void>("create_folder", { path });

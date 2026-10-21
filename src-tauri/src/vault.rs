@@ -446,6 +446,13 @@ pub async fn open_file(app: AppHandle, state: State<'_, VaultState>, path: Strin
         .map_err(|e| VaultError::new(ErrorKind::Io, format!("{path}: couldn't open ({e})")))
 }
 
+/// Moves or renames a PDF, image or video; never overwrites.
+#[tauri::command]
+pub async fn move_file(state: State<'_, VaultState>, from: String, to: String) -> Result<(), VaultError> {
+    let root = state.root()?;
+    blocking(move || move_entry(&root, &from, &to, Kind::File).map(|_| ())).await
+}
+
 /// Opens a web or mail link in the system's default app.
 #[tauri::command]
 pub async fn open_url(app: AppHandle, url: String) -> Result<(), VaultError> {
@@ -573,6 +580,17 @@ mod tests {
         assert_eq!(delete(&root, "c/a2/b/n.md", Kind::Folder).unwrap_err().kind, ErrorKind::NotFound);
         delete(&root, "c", Kind::Folder).unwrap();
         assert!(!root.join("c").exists());
+    }
+
+    #[test]
+    fn move_file_keeps_type_and_never_overwrites() {
+        let (_d, root) = vault();
+        fs::write(root.join("a.pdf"), "pdf").unwrap();
+        fs::write(root.join("b.pdf"), "other").unwrap();
+        assert_eq!(move_entry(&root, "a.pdf", "b.pdf", Kind::File).unwrap_err().kind, ErrorKind::AlreadyExists);
+        assert_eq!(move_entry(&root, "a.pdf", "x/a.sh", Kind::File).unwrap_err().kind, ErrorKind::InvalidPath);
+        move_entry(&root, "a.pdf", "docs/a.pdf", Kind::File).unwrap();
+        assert_eq!(fs::read_to_string(root.join("docs/a.pdf")).unwrap(), "pdf");
     }
 
     #[cfg(unix)]

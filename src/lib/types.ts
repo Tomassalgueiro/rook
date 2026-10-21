@@ -15,6 +15,9 @@ export interface Vault {
 
 export type FolderAction = "note" | "folder" | "rename" | "delete";
 
+/** What a sidebar drag is moving. */
+export type MoveKind = "note" | "file" | "folder";
+
 export type TreeNode =
   | { kind: "folder"; name: string; path: string; children: TreeNode[] }
   | { kind: "note"; name: string; path: string }

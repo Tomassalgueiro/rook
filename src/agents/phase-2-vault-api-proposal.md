@@ -214,3 +214,6 @@ newest first, at most 10. A missing or corrupt file just means the list is empty
   The usual vault containment checks apply.
 - `open_url(url)`: opens `http://`, `https://` and `mailto:` links with the OS default app;
   any other scheme → `InvalidPath`. Used for clicked links in notes.
+- `move_file(from, to)`: moves or renames a PDF, image or video. It uses the same rules as
+  `rename_note` (never overwrites, creates missing folders), and both paths must keep a
+  supported extension.

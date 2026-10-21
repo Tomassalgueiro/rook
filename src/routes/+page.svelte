@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import type { FolderAction, Note, Vault } from "$lib/types";
+  import type { FolderAction, MoveKind, Note, Vault } from "$lib/types";
   import {
     buildTree,
     backlinks,
@@ -317,24 +317,30 @@
     status = `Link target not found: ${href}`;
   }
 
-  async function renameActive(title: string): Promise<boolean> {
-    const note = activeNote;
+  /** Renames or moves a note; false (with the error reported) if it failed. */
+  async function moveNote(from: string, to: string): Promise<boolean> {
+    const note = vault?.notes.find((n) => n.path === from);
     if (!note) return false;
     await flush();
-    const folder = note.path.slice(0, note.path.lastIndexOf("/") + 1);
     try {
-      const from = note.path;
-      const entry = await api.renameNote(from, `${folder}${title}.md`);
+      const entry = await api.renameNote(from, to);
       note.path = entry.path;
       note.modified = entry.modified;
       // The user may have switched notes while the rename was in flight.
       if (activePath === from) activePath = entry.path;
-      status = "Renamed";
       return true;
     } catch (err) {
       report(err);
       return false;
     }
+  }
+
+  async function renameActive(title: string): Promise<boolean> {
+    if (!activeNote) return false;
+    const folder = activeNote.path.slice(0, activeNote.path.lastIndexOf("/") + 1);
+    const ok = await moveNote(activeNote.path, `${folder}${title}.md`);
+    if (ok) status = "Renamed";
+    return ok;
   }
 
   async function deleteActive() {
@@ -369,9 +375,9 @@
     }
   }
 
-  async function renameFolder(path: string) {
-    const to = await dialog.prompt("Rename or move folder (path inside the vault)", path, "Rename");
-    if (!to || to === path || !vault) return;
+  /** Renames or moves a folder; false (with the error reported) if it failed. */
+  async function moveFolder(path: string, to: string): Promise<boolean> {
+    if (!vault) return false;
     await flush();
     try {
       await api.renameFolder(path, to);
@@ -380,10 +386,36 @@
       for (const note of vault.notes) note.path = move(note.path);
       if (activePath) activePath = move(activePath);
       await refresh();
-      status = "Folder renamed";
+      return true;
     } catch (err) {
       report(err);
+      return false;
     }
+  }
+
+  async function renameFolder(path: string) {
+    const to = await dialog.prompt("Rename or move folder (path inside the vault)", path, "Rename");
+    if (to && to !== path && (await moveFolder(path, to))) status = "Folder renamed";
+  }
+
+  /** Sidebar drag-and-drop: moves a note, file or folder into `folder` ("" = vault root). */
+  async function moveInto(path: string, kind: MoveKind, folder: string) {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    const to = folder ? `${folder}/${name}` : name;
+    if (to === path) return;
+    let ok = false;
+    if (kind === "note") ok = await moveNote(path, to);
+    else if (kind === "folder") ok = await moveFolder(path, to);
+    else {
+      try {
+        await api.moveFile(path, to);
+        await refresh();
+        ok = true;
+      } catch (err) {
+        report(err);
+      }
+    }
+    if (ok) status = `Moved to ${folder || "vault root"}`;
   }
 
   async function deleteFolder(path: string) {
@@ -454,6 +486,7 @@
         onopenfile={(path) => api.openFile(path).catch(report)}
         onnewnote={() => newNote()}
         onfolderaction={folderAction}
+        onmove={moveInto}
         onclosevault={closeVault}
       />
       <Resizer bind:width={sidebarWidth} direction={1} label="Resize sidebar" />
