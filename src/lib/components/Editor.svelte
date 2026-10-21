@@ -26,8 +26,6 @@
     linkKey: string;
     options: EditorOptions;
     vim: boolean;
-    /** Vim mode name for the status bar, or null when Vim is off. */
-    onvimmode: (mode: string | null) => void;
     /** `:w` in Vim mode. */
     onsave: () => void;
     /** Resolves false if the rename failed, so the title is reset. */
@@ -42,7 +40,6 @@
     linkKey,
     options,
     vim,
-    onvimmode,
     onsave,
     onrename,
     ondelete,
@@ -63,10 +60,7 @@
       onlink,
       links,
     });
-    return () => {
-      view?.destroy();
-      onvimmode(null);
-    };
+    return () => view?.destroy();
   });
 
   // Pull in content replaced from outside, e.g. "Reload from disk" or an external edit.
@@ -97,7 +91,7 @@
 
   $effect(() => {
     const on = vim;
-    if (view) setVim(view, on, { onsave, onmode: onvimmode });
+    if (view) setVim(view, on, { onsave });
   });
 
   async function commitTitle() {

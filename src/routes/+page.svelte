@@ -34,7 +34,6 @@
   let sidebarOpen = $state(true);
   let backlinksOpen = $state(true);
   let status = $state("");
-  let vimMode = $state<string | null>(null);
   let recent = $state<RecentVault[]>([]);
 
   // Panel widths are a per-machine convenience, so localStorage is enough.
@@ -593,7 +592,6 @@
             {linkKey}
             options={editorOptions}
             vim={settings.vim}
-            onvimmode={(mode) => (vimMode = mode)}
             onsave={() => flush().then(() => status.startsWith("Saved") || (status = "Saved"))}
             onrename={renameActive}
             ondelete={deleteActive}
@@ -622,7 +620,6 @@
     noteCount={vault ? vault.notes.length : null}
     words={activeNote ? wordCount(activeNote.content) : null}
     {status}
-    mode={vimMode}
   />
 </div>
 

@@ -99,7 +99,7 @@ export function setOptions(view: EditorView, options: EditorOptions) {
 export async function setVim(view: EditorView, on: boolean, hooks: VimHooks) {
   if (!on) {
     view.dispatch({ effects: vimOption.reconfigure([]) });
-    hooks.onmode(null);
+    delete view.dom.dataset.vimMode;
     return;
   }
   const extension = await vimExtension();

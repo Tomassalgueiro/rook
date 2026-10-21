@@ -1,14 +1,12 @@
 // Optional Vim keybindings. The package is loaded only when Vim mode is first enabled.
 import { Prec, type Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, drawSelection } from "@codemirror/view";
 
 type VimModule = typeof import("@replit/codemirror-vim");
 
 export interface VimHooks {
   /** `:w`, `:wq`, `:x`. */
   onsave: () => void;
-  /** "normal", "insert", "visual", "visual line"…, or null when Vim mode is off. */
-  onmode: (mode: string | null) => void;
 }
 
 let module: Promise<VimModule> | null = null;
@@ -60,12 +58,33 @@ function moveByLines(Pos: VimModule["CodeMirror"]["Pos"]): any {
   };
 }
 
-const cursor = EditorView.theme({
+/**
+ * Block cursor in the accent color, and the Vim bar: a panel pinned to the bottom of the writing
+ * area with the mode on the left ("--NORMAL--", or the ":"/"/" prompt) and pending keys on the right.
+ */
+const theme = EditorView.theme({
   ".cm-fat-cursor": { background: "var(--accent) !important", color: "var(--bg) !important" },
   "&:not(.cm-focused) .cm-fat-cursor": {
     background: "none !important",
     outline: "solid 1px var(--accent) !important",
   },
+  ".cm-panels": { background: "var(--bg) !important", color: "var(--text-muted) !important" },
+  ".cm-panels-bottom": { borderTop: "1px solid var(--border) !important" },
+  ".cm-vim-panel": {
+    alignItems: "center",
+    gap: "12px",
+    minHeight: "28px",
+    padding: "0 2px",
+    fontFamily: "var(--font-mono)",
+    fontSize: "12px",
+  },
+  ".cm-vim-panel > span:first-child": { fontWeight: "600", letterSpacing: "0.04em", cursor: "pointer" },
+  '&[data-vim-mode="insert"] .cm-vim-panel > span:first-child': { color: "var(--accent)" },
+  '&[data-vim-mode^="visual"] .cm-vim-panel > span:first-child': { color: "var(--file-video)" },
+  '&[data-vim-mode="replace"] .cm-vim-panel > span:first-child': { color: "var(--danger)" },
+  // Pending keys (e.g. "2d"), right-aligned like Vim's showcmd.
+  ".cm-vim-panel > span:last-child": { color: "var(--text)" },
+  ".cm-vim-panel input": { font: "inherit", color: "var(--text)" },
 });
 
 /**
@@ -74,15 +93,16 @@ const cursor = EditorView.theme({
  */
 export async function vimExtension(): Promise<Extension> {
   const { vim } = await load();
-  return [Prec.highest(vim({ status: false })), cursor];
+  // Vim hides the native selection and relies on CodeMirror's drawn one (visual mode, `v`/`V`).
+  return [Prec.highest(vim({ status: true })), drawSelection(), theme];
 }
 
-/** Call after the extension is installed: wires `:w` and mode reporting for this editor. */
+/** Call after the extension is installed: wires `:w` and the mode color for this editor. */
 export async function attachVim(view: EditorView, vimHooks: VimHooks) {
   const { getCM } = await load();
   hooks.set(view, vimHooks);
+  view.dom.dataset.vimMode = "normal";
   getCM(view)?.on("vim-mode-change", (e: { mode: string; subMode?: string }) => {
-    vimHooks.onmode(e.subMode ? `${e.mode} ${e.subMode === "linewise" ? "line" : "block"}` : e.mode);
+    view.dom.dataset.vimMode = e.subMode ? `${e.mode}-${e.subMode}` : e.mode;
   });
-  vimHooks.onmode("normal");
 }
