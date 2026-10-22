@@ -160,8 +160,9 @@ function build(view: EditorView, links: LinkProvider): DecorationSet {
 
         if (isActive(node.from)) return;
         if (syntaxMarks.has(name)) {
-          // Also hide the space after "#" or ">".
-          const end = doc.sliceString(node.to, node.to + 1) === " " ? node.to + 1 : node.to;
+          // Also hide the space after "#" or ">" (not after closing ** or `, which is real text).
+          const leading = name === "HeaderMark" || name === "QuoteMark";
+          const end = leading && doc.sliceString(node.to, node.to + 1) === " " ? node.to + 1 : node.to;
           if (end > node.from) decos.push(hide.range(node.from, end));
         } else if (name === "Link") {
           // [text](url) -> text

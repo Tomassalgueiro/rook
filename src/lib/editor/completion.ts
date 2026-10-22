@@ -9,15 +9,18 @@ import {
 import { EditorView } from "@codemirror/view";
 import type { LinkProvider } from "./types";
 
-/** Inserts the link target and closes the brackets unless "]]" already follows. */
-function applyLink(view: EditorView, completion: Completion, from: number, to: number) {
+/** Inserts `target` and closes the brackets unless "]]" already follows. */
+function insertLink(view: EditorView, completion: Completion, target: string, from: number, to: number) {
   const closed = view.state.sliceDoc(to, to + 2) === "]]";
   view.dispatch({
-    changes: { from, to, insert: closed ? completion.label : `${completion.label}]]` },
-    selection: { anchor: from + completion.label.length + 2 },
+    changes: { from, to, insert: closed ? target : `${target}]]` },
+    selection: { anchor: from + target.length + 2 },
     annotations: pickedCompletion.of(completion),
   });
 }
+
+const applyLink = (view: EditorView, completion: Completion, from: number, to: number) =>
+  insertLink(view, completion, completion.label, from, to);
 
 /**
  * Completion source for wikilinks:
@@ -42,11 +45,11 @@ export const wikilinkSource =
     const typed = match.text.slice(2).trim();
     const result: Completion[] = all.map((o) => ({ label: o.label, detail: o.detail, apply: applyLink }));
     if (typed && !all.some((o) => o.label.toLowerCase() === typed.toLowerCase())) {
+      // The label isn't just `typed`: an exact match would outrank every real note despite the boost.
       result.push({
-        label: typed,
-        displayLabel: `Create note “${typed}”`,
+        label: `Create note “${typed}”`,
         detail: "new",
-        apply: applyLink,
+        apply: (view, completion, from, to) => insertLink(view, completion, typed, from, to),
         boost: -99,
         type: "create",
       });
